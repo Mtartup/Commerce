@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1 class="page-title">제안함</h1>
+
+  <section class="card">
+    <form method="get" action="/actions" class="inline" style="align-items:center">
+      <label>상태 필터</label>
+      <select name="status">
+        {% for s in ["proposed","approved","rejected","executed","failed"] %}
+          <option value="{{ s }}" {% if s == status %}selected{% endif %}>
+            {% if s == "proposed" %}대기{% elif s == "approved" %}승인됨{% elif s == "rejected" %}거절{% elif s == "executed" %}실행됨{% else %}실패{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+      <button type="submit">적용</button>
+    </form>
+  </section>
+
+  <section class="card">
+    {% if proposals|length == 0 %}
+      <p class="muted">해당 상태의 제안이 없습니다.</p>
+    {% else %}
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>플랫폼</th>
+              <th>작업</th>
+              <th>대상</th>
+              <th>위험도</th>
+              <th>사유</th>
+              <th>처리</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in proposals %}
+              <tr>
+                <td><code>{{ p.id }}</code></td>
+                <td>{{ p.platform }}</td>
+                <td>{{ p.action_type }}</td>
+                <td>{{ p.entity_type }}:{{ p.entity_id }}</td>
+                <td>{{ p.risk }}</td>
+                <td class="muted">{{ p.reason or "" }}</td>
+                <td>
+                  {% if p.status == "proposed" %}
+                    <div class="inline">
+                      <form method="post" action="/actions/{{ p.id }}/approve">
+                        <button type="submit">승인</button>
+                      </form>
+                      <form method="post" action="/actions/{{ p.id }}/reject">
+                        <button type="submit" class="danger">거절</button>
+                      </form>
+                    </div>
+                  {% elif p.status == "approved" %}
+                    <form method="post" action="/actions/{{ p.id }}/execute">
+                      <button type="submit">실행</button>
+                    </form>
+                  {% else %}
+                    <span class="muted">{{ p.status }}</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

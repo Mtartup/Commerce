@@ -1,0 +1,23 @@
+[
+  {
+    "date": "2026-02-15",
+    "productNo": "P001",
+    "productName": "Sample Product A",
+    "orderCount": 15,
+    "salesAmount": 450000
+  },
+  {
+    "date": "2026-02-15",
+    "productNo": "P002",
+    "productName": "Sample Product B",
+    "orderCount": 8,
+    "salesAmount": 192000
+  },
+  {
+    "date": "2026-02-16",
+    "productNo": "P001",
+    "productName": "Sample Product A",
+    "orderCount": 12,
+    "salesAmount": 360000
+  }
+]

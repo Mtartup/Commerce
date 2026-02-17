@@ -1,0 +1,23 @@
+(node:30724) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+Traceback (most recent call last):
+  File "<string>", line 55, in <module>
+  File "C:\Users\Philip\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Philip\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Philip\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "<string>", line 40, in main
+NameError: name 'result' is not defined
+Exception ignored in: <function BaseSubprocessTransport.__del__ at 0x0000020B72D3F060>
+Traceback (most recent call last):
+  File "C:\Users\Philip\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_subprocess.py", line 126, in __del__
+  File "C:\Users\Philip\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_subprocess.py", line 104, in close
+  File "C:\Users\Philip\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 109, in close
+  File "C:\Users\Philip\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 799, in call_soon
+  File "C:\Users\Philip\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 545, in _check_closed
+RuntimeError: Event loop is closed

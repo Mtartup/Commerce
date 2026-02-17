@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1 class="page-title">실행 로그</h1>
+  <p class="sub-title">실제 변경이 들어간 내역만 모아 보여줍니다.</p>
+
+  <section class="card">
+    {% if executions|length == 0 %}
+      <p class="muted">실행 이력이 없습니다.</p>
+    {% else %}
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>제안 ID</th>
+              <th>상태</th>
+              <th>시작</th>
+              <th>종료</th>
+              <th>오류</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in executions %}
+              <tr>
+                <td><code>{{ e.id }}</code></td>
+                <td class="muted"><code>{{ e.proposal_id }}</code></td>
+                <td>{{ e.status }}</td>
+                <td class="muted">{{ e.started_at }}</td>
+                <td class="muted">{{ e.finished_at or "" }}</td>
+                <td class="muted">{{ e.error or "" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -1,0 +1,104 @@
+(node:50600) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+Buttons found: 66
+  [1] <A> class="btnLogout" text="로그아웃"
+  [2] <BUTTON> class="btnClose eClose" text="닫기"
+  [3] <A> class="btnAlarm eAdminAlarmClick" text="공지알림"
+  [4] <BUTTON> class="btnClose eClose" text="닫기"
+  [5] <BUTTON> class="btnFold" text="닫기"
+  [6] <BUTTON> class="btnFullMenu" text="메뉴 전체보기"
+  [7] <A> class="btnGuide" text="가이드 전체보기"
+  [8] <BUTTON> class="btnClose eClose" text="닫기"
+  [9] <A> class="btnBack" text="Apps"
+  [10] <A> class="btnBack" text="Apps"
+  [11] <A> class="btnBack" text="Designs"
+  [12] <A> class="btnBack" text="Experts"
+  [13] <A> class="btnBack" text="주문/매출 관리"
+  [14] <A> class="btnBack" text="분석리포트"
+  [15] <A> class="btnBack" text="프로모션"
+  [16] <A> class="btnBack" text="파트너 정보관리"
+  [17] <A> class="btnBack" text="문의 관리"
+  [18] <A> class="btnBack" text="리뷰 관리"
+  [19] <A> class="btnBack" text="Apps"
+  [20] <A> class="btnOther" text="Others"
+  [21] <BUTTON> class="btnSubmit js-btn-save" text="저장"
+  [22] <A> class="btnSubmit eModal" text="테스트 실행"
+  [23] <A> class="btnPrimary js-btn-review" text="심사요청"
+  [24] <BUTTON> class="btnNormal" text="추가"
+  [25] <A> class="btnNormal js-scope-guide" text="권한 적용범위 안내"
+  [26] <BUTTON> class="btnText delete_authority" text="삭제"
+  [27] <BUTTON> class="btnText delete_authority" text="삭제"
+  [28] <BUTTON> class="btnText delete_authority" text="삭제"
+  [29] <BUTTON> class="btnText delete_authority" text="삭제"
+  [30] <BUTTON> class="btnText delete_authority" text="삭제"
+  [31] <A> class="btnNormal js-scope-guide" text="권한 적용범위 안내"
+  [32] <BUTTON> class="btnNormal btnKeyCopy js-clipboard" text="복사"
+  [33] <BUTTON> class="btnNormal" text="보기"
+  [34] <BUTTON> class="btnNormal js-btn-key-copy1 js-clipboard" text="복사"
+  [35] <BUTTON> class="btnCtrl" text="재발급"
+  [36] <BUTTON> class="btnNormal" text="보기"
+  [37] <BUTTON> class="btnNormal js-btn-key-copy2 js-clipboard" text="복사"
+  [38] <BUTTON> class="btnCtrl" text="재발급"
+  [39] <A> class="btnNormal eModal" text="등록"
+  [40] <BUTTON> class="btnNormal" text="로그"
+  [41] <BUTTON> class="btnNormal" text="전체 이벤트 및 권한 안내"
+  [42] <BUTTON> class="btnNormal" text="보기"
+  [43] <BUTTON> class="btnNormal js-btn-api-key-copy js-clipboa" text="복사"
+  [44] <BUTTON> class="btnCtrl" text="재발급"
+  [45] <BUTTON> class="btnWarn" text="상품 삭제"
+  [46] <BUTTON> class="btnSubmit js-btn-save" text="저장"
+  [47] <A> class="btnSubmit eModal" text="테스트 실행"
+  [48] <A> class="btnPrimary js-btn-review" text="심사요청"
+  [49] <BUTTON> class="btnClose eClose" text="닫기"
+  [50] <BUTTON> class="btnSubmit" text="변경"
+  [51] <BUTTON> class="btnEm eClose" text="닫기"
+  [52] <BUTTON> class="btnClose eClose" text="닫기"
+  [53] <BUTTON> class="btnCtrl" text="저장"
+  [54] <BUTTON> class="btnCtrl" text="저장"
+  [55] <BUTTON> class="btnNormal eClose" text="닫기"
+  [56] <BUTTON> class="btnClose eClose" text="닫기"
+  [57] <BUTTON> class="btnCtrl" text="전송"
+  [58] <BUTTON> class="btnNormal eClose" text="닫기"
+  [59] <BUTTON> class="btnClose eClose" text="닫기"
+  [60] <BUTTON> class="btnSubmit" text="실행"
+  [61] <BUTTON> class="btnEm eClose" text="취소"
+  [62] <BUTTON> class="btnClose eClose" text="닫기"
+  [63] <BUTTON> class="btnSubmit" text="심사요청"
+  [64] <BUTTON> class="btnEm eClose" text="닫기"
+  [65] <BUTTON> class="btnClose eClose" text="닫기"
+Exception ignored in: <function BaseSubprocessTransport.__del__ at 0x000001E0487BB100>
+Traceback (most recent call last):
+  File "C:\Users\Philip\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_subprocess.py", line 125, in __del__
+    _warn(f"unclosed transport {self!r}", ResourceWarning, source=self)
+                               ^^^^^^^^
+  File "C:\Users\Philip\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_subprocess.py", line 70, in __repr__
+    info.append(f'stdin={stdin.pipe}')
+                        ^^^^^^^^^^^^
+  File "C:\Users\Philip\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 80, in __repr__
+    info.append(f'fd={self._sock.fileno()}')
+                      ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Philip\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_utils.py", line 102, in fileno
+    raise ValueError("I/O operation on closed pipe")
+ValueError: I/O operation on closed pipe
+Exception ignored in: <function _ProactorBasePipeTransport.__del__ at 0x000001E0487E09A0>
+Traceback (most recent call last):
+  File "C:\Users\Philip\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 116, in __del__
+    _warn(f"unclosed transport {self!r}", ResourceWarning, source=self)
+                               ^^^^^^^^
+  File "C:\Users\Philip\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 80, in __repr__
+    info.append(f'fd={self._sock.fileno()}')
+                      ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Philip\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_utils.py", line 102, in fileno
+    raise ValueError("I/O operation on closed pipe")
+ValueError: I/O operation on closed pipe
+Exception ignored in: <function _ProactorBasePipeTransport.__del__ at 0x000001E0487E09A0>
+Traceback (most recent call last):
+  File "C:\Users\Philip\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 116, in __del__
+    _warn(f"unclosed transport {self!r}", ResourceWarning, source=self)
+                               ^^^^^^^^
+  File "C:\Users\Philip\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 80, in __repr__
+    info.append(f'fd={self._sock.fileno()}')
+                      ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Philip\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_utils.py", line 102, in fileno
+    raise ValueError("I/O operation on closed pipe")
+ValueError: I/O operation on closed pipe

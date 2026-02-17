@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1 class="page-title">연동 관리</h1>
+  <p class="sub-title">현재 운영 대상: 네이버 / 메타 / 구글 / 쿠팡 / 스마트스토어 / 카페24</p>
+
+  <section class="card">
+    <div class="inline">
+      <a class="chip {% if days == 1 %}tone-good{% endif %}" href="/connectors?days=1">오늘</a>
+      <a class="chip {% if days == 7 %}tone-good{% endif %}" href="/connectors?days=7">최근 7일</a>
+      <a class="chip {% if days == 30 %}tone-good{% endif %}" href="/connectors?days=30">최근 30일</a>
+      <span class="muted">기간: {{ start_day }} ~ {{ end_day }}</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2 class="sub-title">채널별 상세 상태</h2>
+    {% if connectors|length == 0 %}
+      <p class="muted">연동 항목이 없습니다. <code>commerce db seed</code>를 먼저 실행하세요.</p>
+    {% else %}
+      <div class="connector-grid">
+        {% for c in connectors %}
+          {% set label = platforms.get(c.platform, c.platform) %}
+          {% set cfg = c.config %}
+          {% set total = c.today_summary %}
+          <article class="connector-item">
+            <h3>{{ label }} / {{ c.name }}</h3>
+            <div class="connector-meta">
+              <span class="muted">연결:</span> {{ "ON" if c.enabled == 1 else "OFF" }}
+              <span class="chip" style="margin-left:6px">mode: {{ cfg.mode or "import" }}</span>
+              <span class="chip">엔티티 {{ total.entity_count }}</span>
+              {% if c.last_error %}
+                <span class="chip" style="border-color: rgba(255,95,122,0.5); color:#ffd3dc">오류: {{ c.last_error[:28] }}</span>
+              {% endif %}
+            </div>
+
+            <div class="inline" style="margin: 8px 0 10px">
+              <span class="chip">총 지출 {{ "{:,.0f}".format(total.spend or 0) }}</span>
+              <span class="chip">클릭 {{ "{:,.0f}".format(total.clicks or 0) }}</span>
+              <span class="chip">전환 {{ "{:,.0f}".format(total.conversions or 0) }}</span>
+              <span class="chip">매출 {{ "{:,.0f}".format(total.value or 0) }}</span>
+              <span class="chip">엔티티 수 {{ total.entity_count }}</span>
+            </div>
+
+            <details class="connector-details" open>
+              <summary>레벨별 상세 보기</summary>
+              <div style="display:grid; gap:6px; margin-top:8px">
+                {% for s in c.level_summaries %}
+                  <div class="inline connector-level">
+                    <span class="muted">{{ s.entity_type_label }}</span>
+                    <span>지출 {{ "{:,.0f}".format(s.spend) }}</span>
+                    <span>클릭 {{ "{:,.0f}".format(s.clicks) }}</span>
+                    <span>전환 {{ "{:,.0f}".format(s.conversions) }}</span>
+                    <span>매출 {{ "{:,.0f}".format(s.value) }}</span>
+                    <span>CVR {{ '%.2f%%' % (s.cvr * 100) if s.clicks else '0.00%' }}</span>
+                    <span>CPA {{ '%.0f' % s.cpa if s.cpa is not none else '' }}</span>
+                    <span>ROAS {{ '%.2f' % (s.roas if s.roas is not none else 0) }}</span>
+                    <span>엔티티 {{ s.entity_count }}</span>
+                    <a class="chip" href="/metrics?platform={{ c.platform }}&entity_type={{ s.entity_type }}&date={{ c.day }}&days={{ days }}">지표</a>
+                    <a class="chip" href="/entities?platform={{ c.platform }}&entity_type={{ s.entity_type }}">엔티티</a>
+                  </div>
+                {% endfor %}
+              </div>
+            </details>
+            {% if c.level_summaries|length == 0 %}
+              <p class="muted">해당 기간 데이터가 없습니다.</p>
+            {% endif %}
+
+            <div class="inline" style="margin-top:10px; gap:12px">
+              {% if c.enabled == 1 %}
+                <form method="post" action="/connectors/{{ c.id }}/disable">
+                  <button type="submit" class="danger">비활성화</button>
+                </form>
+              {% else %}
+                <form method="post" action="/connectors/{{ c.id }}/enable">
+                  <button type="submit">활성화</button>
+                </form>
+              {% endif %}
+              <span class="muted">최근 동기화: {{ c.last_sync_at or "없음" }}</span>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2 class="sub-title">설정</h2>
+    {% if connectors|length == 0 %}
+      <p class="muted">연동 항목이 없습니다. <code>commerce db seed</code>를 먼저 실행하세요.</p>
+    {% else %}
+      <div class="connector-grid">
+        {% for c in connectors %}
+          {% set cfg = c.config %}
+          <article class="connector-item">
+            <h3>{{ c.name }}</h3>
+            <div class="connector-meta">
+              <span class="muted">플랫폼:</span> {{ c.platform }}
+              <span class="chip" style="margin-left:6px">{{ "활성" if c.enabled == 1 else "비활성" }}</span>
+              {% if c.last_error %}
+                <span class="chip" style="border-color: rgba(255,95,122,0.5); color:#ffd3dc">오류: {{ c.last_error[:28] }}</span>
+              {% endif %}
+            </div>
+
+            <form method="post" action="/connectors/{{ c.id }}/config" class="row" style="margin:10px 0 12px">
+              <label>수집 방식</label>
+              <select name="mode">
+                {% for m in ["import","fixture","api"] %}
+                  <option value="{{ m }}" {% if (cfg.mode or "import") == m %}selected{% endif %}>{{ m }}</option>
+                {% endfor %}
+              </select>
+
+              <label>커스텀 파일 경로</label>
+              <input name="fixture_dir" placeholder="fixture_dir (옵션)" value="{{ cfg.fixture_dir or '' }}" />
+
+              {% if c.platform == "naver" %}
+                <label>리포트 타입</label>
+                <input name="report_tp" placeholder="AD_DETAIL" value="{{ cfg.report_tp or 'AD_DETAIL' }}" />
+
+                <label>상품 구분</label>
+                <input name="product_types" placeholder="powerlink,powercontent,shoppingsearch" value="{{ (cfg.product_types or []) | join(',') }}" />
+
+                <label>적재 단위</label>
+                <input name="ingest_levels" placeholder="campaign,adgroup,keyword" value="{% if cfg.ingest_levels is string %}{{ cfg.ingest_levels }}{% else %}{{ (cfg.ingest_levels or []) | join(',') }}{% endif %}" />
+
+                <label class="inline" style="gap:12px">
+                  <input type="checkbox" name="include_today" value="1" {% if cfg.include_today %}checked{% endif %} />
+                  오늘 데이터까지 수집
+                </label>
+
+                <div class="inline">
+                  <div style="flex:1; min-width:120px">
+                    <label>리포트 최소 간격(분)</label>
+                    <input type="number" step="1" min="1" name="api_min_interval_minutes" value="{{ cfg.api_min_interval_minutes or '' }}" />
+                  </div>
+                  <div style="flex:1; min-width:120px">
+                    <label>폴링 간격(초)</label>
+                    <input type="number" step="0.1" min="0.1" name="report_poll_interval_sec" value="{{ cfg.report_poll_interval_sec or '' }}" />
+                  </div>
+                  <div style="flex:1; min-width:120px">
+                    <label>타임아웃(초)</label>
+                    <input type="number" step="1" min="1" name="report_timeout_sec" value="{{ cfg.report_timeout_sec or '' }}" />
+                  </div>
+                </div>
+              {% elif c.platform == "meta" %}
+                <label>광고 계정 ID (옵션)</label>
+                <input name="ad_account_id" placeholder="act_1234567890" value="{{ cfg.ad_account_id or '' }}" />
+
+                <label>적재 단위</label>
+                <input name="ingest_levels" placeholder="campaign,adset,ad" value="{% if cfg.ingest_levels is string %}{{ cfg.ingest_levels }}{% else %}{{ (cfg.ingest_levels or []) | join(',') }}{% endif %}" />
+
+                <label class="inline" style="gap:12px">
+                  <input type="checkbox" name="include_today" value="1" {% if cfg.include_today %}checked{% endif %} />
+                  오늘 데이터까지 수집
+                </label>
+
+                <div class="inline">
+                  <div style="flex:1; min-width:160px">
+                    <label>API 최소 간격(분)</label>
+                    <input type="number" step="1" min="1" name="api_min_interval_minutes" value="{{ cfg.api_min_interval_minutes or '' }}" />
+                  </div>
+                  <div style="flex:2; min-width:240px">
+                    <label>구매 전환 액션(옵션)</label>
+                    <input name="conversion_action_types" placeholder="purchase,offsite_conversion.fb_pixel_purchase,omni_purchase" value="{% if cfg.conversion_action_types is string %}{{ cfg.conversion_action_types }}{% else %}{{ (cfg.conversion_action_types or []) | join(',') }}{% endif %}" />
+                  </div>
+                </div>
+              {% elif c.platform == "google" %}
+                <label>고객 ID (옵션)</label>
+                <input name="customer_id" placeholder="123-456-7890" value="{{ cfg.customer_id or '' }}" />
+
+                <label>적재 단위</label>
+                <input name="ingest_levels" placeholder="campaign,adgroup,keyword" value="{% if cfg.ingest_levels is string %}{{ cfg.ingest_levels }}{% else %}{{ (cfg.ingest_levels or []) | join(',') }}{% endif %}" />
+
+                <label class="inline" style="gap:12px">
+                  <input type="checkbox" name="include_today" value="1" {% if cfg.include_today %}checked{% endif %} />
+                  오늘 데이터까지 수집
+                </label>
+
+                <div class="inline">
+                  <div style="flex:1; min-width:160px">
+                    <label>API 최소 간격(분)</label>
+                    <input type="number" step="1" min="1" name="api_min_interval_minutes" value="{{ cfg.api_min_interval_minutes or '' }}" />
+                  </div>
+                </div>
+              {% elif c.platform in ["coupang", "smartstore", "cafe24_analytics"] %}
+                <p class="muted">판매채널: mode와 fixture_dir만 설정합니다. API 인증은 .env에서 관리.</p>
+              {% endif %}
+              <button type="submit" class="cta">저장</button>
+            </form>
+
+            <div class="inline">
+              {% if c.enabled == 1 %}
+                <form method="post" action="/connectors/{{ c.id }}/disable">
+                  <button type="submit" class="danger">비활성화</button>
+                </form>
+              {% else %}
+                <form method="post" action="/connectors/{{ c.id }}/enable">
+                  <button type="submit">활성화</button>
+                </form>
+              {% endif %}
+              <span class="muted">최근 동기화: {{ c.last_sync_at or "없음" }}</span>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

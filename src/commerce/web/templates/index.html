@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1 class="page-title">Commerce 대시보드</h1>
+  <p class="sub-title">{{ day }} KST</p>
+
+  {# [1] Totals banner #}
+  <div class="totals-banner">
+    <div class="total-item">
+      <div class="label">오늘 주문</div>
+      <div class="value">{{ total_orders }}건</div>
+    </div>
+    <div class="total-item">
+      <div class="label">오늘 매출</div>
+      <div class="value">{{ "{:,.0f}".format(total_revenue) }}원</div>
+    </div>
+    <div class="total-item">
+      <div class="label">광고비</div>
+      <div class="value">{{ "{:,.0f}".format(total_spend) }}원</div>
+    </div>
+    <div class="total-item">
+      <div class="label">블렌디드 ROAS</div>
+      <div class="value">{{ "%.2f"|format(blended_roas) if blended_roas is not none else "-" }}</div>
+    </div>
+    <div class="total-item">
+      <div class="label">플랫폼 ROAS</div>
+      <div class="value">{{ "%.2f"|format(platform_roas) if platform_roas is not none else "-" }}</div>
+    </div>
+    <div class="total-item">
+      <div class="label">어트리뷰션 ROAS</div>
+      <div class="value">{{ "%.2f"|format(attributed_roas) if attributed_roas is not none else "-" }}</div>
+    </div>
+    <div class="total-item">
+      <div class="label">광고 클릭</div>
+      <div class="value">{{ "{:,}".format(total_ad_clicks) }}</div>
+    </div>
+  </div>
+
+  {# [2] Funnel: visitors → PV → orders → revenue #}
+  <div class="funnel-row">
+    <div class="funnel-step">
+      <div class="label">방문자</div>
+      <div class="value">{{ "{:,}".format(funnel_visitors) }}</div>
+    </div>
+    <div class="funnel-arrow">&rarr;</div>
+    <div class="funnel-step">
+      <div class="label">페이지뷰</div>
+      <div class="value">{{ "{:,}".format(funnel_pv) }}</div>
+      <div class="sub">PV/Visit {{ "%.1f"|format(pv_per_visit) }}</div>
+    </div>
+    <div class="funnel-arrow">&rarr;</div>
+    <div class="funnel-step">
+      <div class="label">주문</div>
+      <div class="value">{{ total_orders }}건</div>
+      <div class="sub">전환율 {{ "%.2f"|format(funnel_cvr) }}%</div>
+    </div>
+    <div class="funnel-arrow">&rarr;</div>
+    <div class="funnel-step">
+      <div class="label">매출</div>
+      <div class="value">{{ "{:,.0f}".format(total_revenue) }}원</div>
+    </div>
+  </div>
+
+  {# [3]+[4] Two columns: ad platforms | store orders #}
+  <div class="two-col-grid">
+    <section class="card">
+      <div class="section-header">
+        <h2>광고 플랫폼</h2>
+        <a href="/metrics?platform=naver&entity_type=campaign">상세 &rarr;</a>
+      </div>
+      <div class="summary-grid">
+        {% for c in platform_cards %}
+          <article class="metric">
+            <div class="metric-head">
+              <div>
+                <div class="label">{{ c.label }}</div>
+              </div>
+              <span class="chip tone-{{ c.tone }}">{{ c.health }}</span>
+            </div>
+            <div class="metric-rows">
+              <div><span class="muted">지출</span>{{ "{:,.0f}".format(c.spend) }}</div>
+              <div><span class="muted">클릭</span>{{ "{:,.0f}".format(c.clicks) }}</div>
+              <div><span class="muted">전환</span>{{ "{:,.0f}".format(c.conversions) }}</div>
+              <div><span class="muted">ROAS</span>{{ "%.2f"|format(c.roas) if c.roas is not none else "-" }}</div>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-header">
+        <h2>판매채널 주문</h2>
+        <a href="/store">상세 &rarr;</a>
+      </div>
+      <div class="summary-grid">
+        {% for s in store_cards %}
+          <article class="metric">
+            <div class="label">{{ s.label }}</div>
+            <div class="metric-rows">
+              <div><span class="muted">주문</span>{{ s.order_count }}건</div>
+              <div><span class="muted">매출</span>{{ "{:,.0f}".format(s.total_amount) }}원</div>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
+  {# [5] Bottom row: pending proposals | connector health #}
+  <div class="two-col-grid">
+    <section class="card">
+      <div class="section-header">
+        <h2>미처리 제안</h2>
+        <a href="/actions">전체 보기 &rarr;</a>
+      </div>
+      {% if pending|length == 0 %}
+        <p class="muted">승인 대기 중인 제안이 없습니다.</p>
+      {% else %}
+        {% for p in pending[:5] %}
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border)">
+            <span class="muted" style="font-size:13px">{{ p.platform }} / {{ p.action_type }}</span>
+            <code style="font-size:12px">{{ p.entity_type }}</code>
+          </div>
+        {% endfor %}
+        {% if pending|length > 5 %}
+          <p class="muted" style="margin-top:8px; font-size:12px">외 {{ pending|length - 5 }}건</p>
+        {% endif %}
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <div class="section-header">
+        <h2>연동 상태</h2>
+        <a href="/connectors">설정 &rarr;</a>
+      </div>
+      <div class="health-grid">
+        {% for h in connector_health %}
+          <div class="health-item">
+            <span class="health-dot {{ h.status }}"></span>
+            <span>{{ h.label }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+{% endblock %}

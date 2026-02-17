@@ -1,0 +1,5 @@
+platform,account_id,entity_type,entity_id,date,spend,impressions,clicks,conversions,conversion_value,metrics_json
+naver,naver_demo_account,campaign,naver_camp_1,2026-02-15,60000,120000,80,0,0,"{""product_type"":""powerlink"",""fixture"":true}"
+naver,naver_demo_account,adgroup,naver_grp_1,2026-02-15,60000,120000,80,0,0,"{""product_type"":""powerlink"",""fixture"":true}"
+naver,naver_demo_account,keyword,naver_kw_1,2026-02-15,60000,120000,80,0,0,"{""product_type"":""powerlink"",""fixture"":true}"
+

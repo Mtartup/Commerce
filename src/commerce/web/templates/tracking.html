@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1 class="page-title">트래킹 링크</h1>
+  <p class="sub-title">광고 URL 뒤에 붙일 추적용 링크를 만듭니다.</p>
+
+  <section class="card">
+    <h2 class="sub-title">새 링크 만들기</h2>
+    <form method="post" action="/tracking/create" class="row">
+      <div class="inline" style="gap:12px; align-items:center">
+        <label>코드(선택)</label>
+        <input name="code" placeholder="빈값이면 자동 생성" style="width:180px" />
+      </div>
+      <label>도착 URL</label>
+      <input name="destination_url" placeholder="https://..." />
+      <div class="inline" style="gap:12px; align-items:center">
+        <label>채널</label>
+        <select name="channel">
+          <option value="">채널</option>
+          {% for c in ["naver","meta","google","coupang","smartstore"] %}
+            <option value="{{ c }}">{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="inline" style="gap:12px; align-items:center">
+        <label>목표</label>
+        <select name="objective">
+          <option value="">목표</option>
+          {% for o in ["direct_purchase","blog_traffic","retargeting"] %}
+            <option value="{{ o }}">{{ o }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="inline" style="gap:12px; align-items:center">
+        <label>연동 플랫폼</label>
+        <input name="entity_platform" placeholder="naver / meta / google" style="width:180px" />
+      </div>
+      <div class="inline" style="gap:12px; align-items:center">
+        <label>연동 타입</label>
+        <input name="entity_type" placeholder="campaign / adgroup" style="width:160px" />
+      </div>
+      <div class="inline" style="gap:12px; align-items:center">
+        <label>연동 ID</label>
+        <input name="entity_id" placeholder="아이디" style="width:180px" />
+      </div>
+      <button type="submit">생성</button>
+    </form>
+
+    <p class="muted">예시: <code>{{ request.base_url }}r/&lt;code&gt;</code> 형식으로 붙습니다.</p>
+    <p class="note">로컬 전용에서 실행 중이면 고객 트래픽은 로컬로 못 들어옵니다. 실사용은 공개 주소 또는 터널이 필요합니다.</p>
+    <p class="muted"><a href="/tracking/snippet/cafe24">카페24 연동 가이드</a></p>
+  </section>
+
+  <section class="card">
+    <h2 class="sub-title">최근 생성 링크</h2>
+    {% if links|length == 0 %}
+      <p class="muted">아직 링크가 없습니다.</p>
+    {% else %}
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>코드</th>
+              <th>리다이렉트 URL</th>
+              <th>목적지</th>
+              <th>채널</th>
+              <th>목표</th>
+              <th>연동 엔티티</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for l in links %}
+              <tr>
+                <td><code>{{ l.code }}</code></td>
+                <td class="muted"><code>{{ request.base_url }}r/{{ l.code }}</code></td>
+                <td class="muted">{{ l.destination_url }}</td>
+                <td class="muted">{{ l.channel or "" }}</td>
+                <td class="muted">{{ l.objective or "" }}</td>
+                <td class="muted">{{ l.entity_platform or "" }} {{ l.entity_type or "" }} {{ l.entity_id or "" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

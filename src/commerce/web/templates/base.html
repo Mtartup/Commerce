@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ title or "Commerce 운영 대시보드" }}</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <span class="brand-mark">C</span>
+          <div>
+            <div class="sidebar-title">Commerce</div>
+            <div class="sidebar-sub">운영 대시보드</div>
+          </div>
+        </div>
+        <nav class="side-nav">
+          <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">홈</a>
+          <a href="/store" class="{% if request.url.path.startswith('/store') %}active{% endif %}">주문</a>
+          <a href="/metrics?platform=naver&entity_type=campaign" class="{% if request.url.path.startswith('/metrics') %}active{% endif %}">광고 성과</a>
+          <div class="nav-divider"></div>
+          <a href="/connectors" class="{% if request.url.path.startswith('/connectors') %}active{% endif %}">설정</a>
+          <details class="nav-advanced">
+            <summary class="nav-advanced-toggle">고급</summary>
+            <div class="nav-advanced-items">
+              <a href="/actions" class="{% if request.url.path.startswith('/actions') %}active{% endif %}">제안함</a>
+              <a href="/rules" class="{% if request.url.path.startswith('/rules') %}active{% endif %}">규칙</a>
+              <a href="/executions" class="{% if request.url.path.startswith('/executions') %}active{% endif %}">실행 로그</a>
+              <a href="/tracking" class="{% if request.url.path.startswith('/tracking') %}active{% endif %}">트래킹</a>
+              <a href="/kpi" class="{% if request.url.path.startswith('/kpi') %}active{% endif %}">KPI</a>
+              <a href="/entities?platform=naver&entity_type=campaign" class="{% if request.url.path.startswith('/entities') %}active{% endif %}">엔티티</a>
+            </div>
+          </details>
+        </nav>
+      </aside>
+      <main class="main">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </body>
+</html>

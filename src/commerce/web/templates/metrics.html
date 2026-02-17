@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block content %}
+  <p style="margin:0 0 6px"><a href="/" style="color:var(--accent); text-decoration:none; font-size:13px">&larr; 홈</a></p>
+  <h1 class="page-title">광고 성과</h1>
+
+  <section class="card">
+    <div class="inline" style="margin-bottom:10px">
+      <a class="chip {% if days == 1 %}tone-good{% endif %}" href="/metrics?platform={{ platform }}&entity_type={{ entity_type }}&date={{ day }}&conv_metric={{ conv_metric }}&days=1">오늘</a>
+      <a class="chip {% if days == 7 %}tone-good{% endif %}" href="/metrics?platform={{ platform }}&entity_type={{ entity_type }}&date={{ day }}&conv_metric={{ conv_metric }}&days=7">최근 7일</a>
+      <a class="chip {% if days == 30 %}tone-good{% endif %}" href="/metrics?platform={{ platform }}&entity_type={{ entity_type }}&date={{ day }}&conv_metric={{ conv_metric }}&days=30">최근 30일</a>
+      <span class="muted">기간: {{ start_day }} ~ {{ day }}</span>
+    </div>
+
+    <form method="get" action="/metrics" class="row">
+      <input type="hidden" name="days" value="{{ days }}" />
+      <input type="hidden" name="date" value="{{ day }}" />
+      <div class="inline" style="gap:12px; align-items:center">
+        <label>플랫폼</label>
+        <select name="platform">
+          <option value="naver" {% if platform == "naver" %}selected{% endif %}>네이버</option>
+          <option value="meta" {% if platform == "meta" %}selected{% endif %}>메타</option>
+          <option value="google" {% if platform == "google" %}selected{% endif %}>구글</option>
+          <option value="cafe24_analytics" {% if platform == "cafe24_analytics" %}selected{% endif %}>카페24 분석</option>
+        </select>
+      </div>
+      <div class="inline" style="gap:12px; align-items:center">
+        <label>단위</label>
+        <select name="entity_type">
+          {% for e in entity_options %}
+            <option value="{{ e }}" {% if entity_type == e %}selected{% endif %}>{{ entity_type_labels[e] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="inline" style="gap:12px; align-items:center">
+        <label>전환값</label>
+        <select name="conv_metric">
+          {% for cm in ["primary","all"] %}
+            <option value="{{ cm }}" {% if cm == conv_metric %}selected{% endif %}>
+              {{ "공식 전환" if cm == "primary" else "전체 전환" }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit">조회</button>
+    </form>
+
+    <details style="margin-top: 10px">
+      <summary class="chip">고급: 날짜 직접 입력</summary>
+      <form method="get" action="/metrics" class="row" style="margin-top:8px">
+        <input type="hidden" name="days" value="{{ days }}" />
+        <input type="hidden" name="platform" value="{{ platform }}" />
+        <input type="hidden" name="entity_type" value="{{ entity_type }}" />
+        <input type="hidden" name="conv_metric" value="{{ conv_metric }}" />
+        <label>끝 날짜(KST)</label>
+        <input name="date" value="{{ day }}" style="width:160px" />
+        <button type="submit">적용</button>
+      </form>
+    </details>
+  </section>
+
+  <section class="card">
+    <h2 class="sub-title">경보(빨간색)</h2>
+    <p class="muted">임계치: 클릭 {{ alert_rules.clicks_min }} 미만 / ROAS {{ alert_rules.roas_min }} 미만 / CPA {{ "%.0f"|format(alert_rules.cpa_max) }}원 초과</p>
+    <p class="muted">문제가 있는 엔티티: {{ alert_count }}개</p>
+
+    {% if alert_entities_top|length == 0 %}
+      <p class="muted">현재 경보 대상이 없습니다.</p>
+    {% else %}
+      <div class="summary-grid">
+        {% for m in alert_entities_top %}
+          <article class="metric">
+            <div class="metric-head">
+              <div>
+                <div class="label">{{ m.entity_id }}</div>
+                <div class="muted">{{ "클릭 " + ("{0:,.0f}".format(m.derived_clicks)) }}</div>
+              </div>
+            </div>
+            <div class="metric-rows">
+              <div><span class="muted">ROAS</span><span>{{ '%.2f' % m.derived_roas }}</span></div>
+              <div><span class="muted">CPA</span><span>{{ '%.0f' % m.derived_cpa if m.derived_cpa is not none else '-' }}</span></div>
+              <div>
+                <span class="muted">경보</span>
+                <span class="inline">
+                  {% for a in m.alerts %}
+                    <span class="chip tone-danger">{{ a }}</span>
+                  {% endfor %}
+                </span>
+              </div>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    {% if rows|length == 0 %}
+      <p class="muted">선택한 기간에 지표가 없습니다.</p>
+    {% else %}
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>엔티티</th>
+              <th>지출</th>
+              <th>클릭</th>
+              <th>전환(공식)</th>
+              <th>전환(전체)</th>
+              <th>매출(공식)</th>
+              <th>매출(전체)</th>
+              <th>CVR</th>
+              <th>CPA</th>
+              <th>ROAS</th>
+              <th>경보</th>
+              <th>카페24 전환</th>
+              <th>카페24 매출</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for m in rows %}
+              {% set spend = (m.spend or 0) %}
+              {% set clicks = (m.clicks or 0) %}
+              {% set conv = (m.conversions or 0) %}
+              {% set value = (m.conversion_value or 0) %}
+              {% set conv_all = (m.conversions_all or 0) %}
+              {% set value_all = (m.conversion_value_all or 0) %}
+              {% set conv_calc = conv_all if conv_metric == "all" else conv %}
+              {% set value_calc = value_all if conv_metric == "all" else value %}
+              {% set cvr = (conv_calc / clicks) if clicks else 0 %}
+              {% set cpa = (spend / conv_calc) if conv_calc else 0 %}
+              {% set roas = (value_calc / spend) if spend else 0 %}
+              <tr>
+                <td class="muted"><code>{{ m.entity_id }}</code></td>
+                <td>{{ "{:,.0f}".format(spend) }}</td>
+                <td>{{ clicks }}</td>
+                <td>{{ conv }}</td>
+                <td>{{ conv_all if m.conversions_all is not none else "" }}</td>
+                <td>{{ "{:,.0f}".format(value) }}</td>
+                <td>{{ value_all if m.conversion_value_all is not none else "" }}</td>
+                <td>{{ '%.2f%%' % (cvr * 100) if clicks else '' }}</td>
+                <td>{{ '%.0f' % cpa if conv_calc else '' }}</td>
+                <td>{{ '%.2f' % roas if spend else '' }}</td>
+                <td class="row">
+                  {% if m.alert_count and m.alert_count > 0 %}
+                    {% for a in m.alerts %}
+                      <span class="chip tone-danger">{{ a }}</span>
+                    {% endfor %}
+                  {% else %}
+                    <span class="muted">-</span>
+                  {% endif %}
+                </td>
+                <td>{{ m.cafe24_conversions or 0 }}</td>
+                <td>{{ m.cafe24_value or 0 }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+  <p style="margin:0 0 6px"><a href="/" style="color:var(--accent); text-decoration:none; font-size:13px">&larr; 홈</a></p>
+  <h1 class="page-title">주문 상세</h1>
+
+  <section class="card">
+    <div class="inline" style="gap:12px; margin-bottom:12px">
+      {% for s, label in [("cafe24","카페24"), ("coupang","쿠팡"), ("smartstore","스마트스토어")] %}
+        <a class="chip {% if store == s %}tone-good{% endif %}" href="/store?store={{ s }}&days={{ days }}">{{ label }}</a>
+      {% endfor %}
+      <a class="chip {% if days == 1 %}tone-good{% endif %}" href="/store?store={{ store }}&days=1">오늘</a>
+    </div>
+    <p class="muted">현재 로컬 전용입니다. 외부 주문은 직접 주문/클릭 이벤트를 가져와서 반영합니다.</p>
+    <p class="note">
+      임포트 예시:
+      <code>uv run commerce import cafe24-orders --file .\\imports\\cafe24_orders.csv</code>
+    </p>
+  </section>
+
+  <section class="card">
+    <h2 class="sub-title">{{ start }} ~ {{ end }} 유입 경로 집계</h2>
+    {% if summary|length == 0 %}
+      <p class="muted">주문 요약이 없습니다.</p>
+    {% else %}
+      <div class="summary-grid">
+        {% for s in summary %}
+          <div class="metric">
+            <div class="label">{{ s.inflow_path }}</div>
+            <div class="value">{{ s.orders }}</div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2 class="sub-title">최근 주문 (최대 200)</h2>
+    {% if orders|length == 0 %}
+      <p class="muted">주문 데이터가 없습니다.</p>
+    {% else %}
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>날짜</th>
+              <th>주문번호</th>
+              <th>상태</th>
+              <th>유입경로</th>
+              <th>상세</th>
+              <th>금액</th>
+              <th>주문처</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for o in orders %}
+              <tr>
+                <td class="muted"><code>{{ o.date_kst }}</code></td>
+                <td><code>{{ o.order_id }}</code></td>
+                <td class="muted">{{ o.status or "" }}</td>
+                <td class="muted">{{ o.inflow_path or "" }}</td>
+                <td class="muted" style="max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                  {{ o.inflow_path_detail or o.source_raw or o.referer or "" }}
+                </td>
+                <td class="muted">
+                  {% if o.amount is not none %}
+                    {{ o.amount }} {{ o.currency or "" }}
+                  {% endif %}
+                </td>
+                <td class="muted">{{ o.order_place_id or "" }} {{ o.order_place_name or "" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

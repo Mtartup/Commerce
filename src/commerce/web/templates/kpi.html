@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1 class="page-title">KPI 프로필</h1>
+  <p class="sub-title">매체별/캠페인별 판단 기준을 한곳에 관리합니다.</p>
+
+  <section class="card">
+    <h2 class="sub-title">프로필 생성</h2>
+    <form method="post" action="/kpi/create" class="row">
+      <div class="inline" style="gap:12px; align-items:center">
+        <label>이름</label>
+        <input name="name" placeholder="예: 구매 전환 우선" style="width:320px" />
+      </div>
+      <div class="inline" style="gap:12px; align-items:center">
+        <label>목표</label>
+        <select name="objective">
+          {% for o in ["direct_purchase","blog_traffic","retargeting","guardrail"] %}
+            <option value="{{ o }}">{{ o }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="inline" style="gap:12px; align-items:center">
+        <label>플랫폼</label>
+        <input name="platform" placeholder="전체/비워도 됨" style="width:180px" />
+      </div>
+      <label>정의 JSON</label>
+      <input name="definition_json" placeholder='{"spend_cap":50000}' style="max-width: 680px;" />
+      <button type="submit">생성</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2 class="sub-title">프로필 목록</h2>
+    {% if profiles|length == 0 %}
+      <p class="muted">등록된 KPI가 없습니다.</p>
+    {% else %}
+      <div class="summary-grid">
+        {% for p in profiles %}
+          <div class="metric">
+            <div class="label">{{ p.name }}</div>
+            <div class="value">{{ p.objective }}</div>
+            <p class="muted">{{ p.platform or "전체" }}</p>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2 class="sub-title">엔티티 연결 현황</h2>
+    {% if mappings|length == 0 %}
+      <p class="muted">연결된 항목이 없습니다.</p>
+    {% else %}
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>엔티티</th>
+              <th>KPI</th>
+              <th>상태</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for m in mappings %}
+              <tr>
+                <td class="muted">{{ m.platform }} {{ m.entity_type }} <code>{{ m.entity_id }}</code></td>
+                <td class="muted">{{ m.kpi_name }} ({{ m.kpi_objective }})</td>
+                <td class="muted">{{ "ON" if m.enabled == 1 else "OFF" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

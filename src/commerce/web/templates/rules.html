@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1 class="page-title">규칙</h1>
+  <p class="sub-title">실수 방지용 자동 규칙은 여기서 켜고 끕니다.</p>
+
+  <section class="card">
+    {% if error %}
+      <p class="muted" style="color:#ff9a9a">
+        {% if error == "invalid_params_json" %}
+          설정 JSON 형식이 올바르지 않습니다. JSON 객체 형태로 입력하세요.
+        {% elif error == "unknown_rule" %}
+          대상 규칙을 찾을 수 없습니다.
+        {% else %}
+          요청 처리 중 오류가 발생했습니다.
+        {% endif %}
+      </p>
+    {% endif %}
+    {% if rules|length == 0 %}
+      <p class="muted">등록된 규칙이 없습니다. <code>commerce db seed</code>를 확인하세요.</p>
+    {% else %}
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>사용</th>
+              <th>이름</th>
+              <th>종류</th>
+              <th>플랫폼</th>
+              <th>설정</th>
+              <th>동작</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in rules %}
+              <tr>
+                <td>{{ "ON" if r.enabled == 1 else "OFF" }}</td>
+                <td>{{ r.name }}</td>
+                <td><code>{{ r.rule_type }}</code></td>
+                <td class="muted">{{ r.platform or "" }}</td>
+                <td>
+                  <form method="post" action="/rules/{{ r.id }}/update" class="inline">
+                    <input name="params_json" value='{{ r.params_json }}' style="max-width: 430px;" />
+                    <button type="submit">저장</button>
+                  </form>
+                </td>
+                <td>
+                  {% if r.enabled == 1 %}
+                    <form method="post" action="/rules/{{ r.id }}/disable">
+                      <button type="submit" class="danger">비활성화</button>
+                    </form>
+                  {% else %}
+                    <form method="post" action="/rules/{{ r.id }}/enable">
+                      <button type="submit">활성화</button>
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

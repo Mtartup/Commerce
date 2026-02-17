@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1>Cafe24: Reality Check (Local-Only)</h1>
+
+  <section class="card">
+    <p class="muted">
+      Cafe24 is hosted on Cafe24 servers, but your Commerce app runs on your machine.
+      That means: customer browsers cannot send purchase events to <code>http://localhost:...</code>.
+      (It only works when you personally buy from the same PC running Commerce.)
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>What You Actually Want (Recommended)</h2>
+    <p class="muted">
+      For ad optimization, you do not need a custom conversion endpoint.
+      Install each platform's own tag/pixel via GTM or Cafe24 "HTML tag input", then import/pull conversions from each ad platform into Commerce.
+    </p>
+    <ul>
+      <li><code>Naver</code>: conversion tracking for PowerLink/PowerContent/Shopping ads</li>
+      <li><code>Meta</code>: Meta Pixel (Purchase)</li>
+      <li><code>Google</code>: Google tag + Google Ads conversion</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>"Roughly Where They Came From" (Store View)</h2>
+    <p class="muted">
+      If you only care about "source-ish" (not exact ROAS), start by importing Cafe24 orders and reading <code>inflow_path</code> / referer-like fields.
+    </p>
+    <p class="muted">
+      1) Export orders CSV from Cafe24 admin (order list -> Excel/CSV).<br />
+      2) Import into Commerce:<br />
+      <code>uv run commerce import cafe24-orders --file .\\imports\\cafe24_orders.csv</code><br />
+      3) Check <a href="/store">Store</a> for breakdown.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>Optional: Self-Test Snippet (Only Works On Your PC)</h2>
+    <p class="muted">
+      This is for verifying the pipeline end-to-end while you are the buyer. Do not rely on this for real customers unless Commerce is hosted on a public URL.
+    </p>
+
+    <h3 style="margin:0 0 8px">Capture <span class="muted">(All Pages)</span></h3>
+    <pre><code>&lt;script&gt;
+(function () {
+  var p = new URLSearchParams(window.location.search);
+  var cid = p.get('cid');
+  if (!cid) return;
+
+  try { localStorage.setItem('adsops_cid', cid); } catch (e) {}
+  try {
+    document.cookie = 'adsops_cid=' + encodeURIComponent(cid) + '; path=/; max-age=' + (60 * 60 * 24 * 30);
+  } catch (e) {}
+})();
+&lt;/script&gt;</code></pre>
+
+    <h3 style="margin:0 0 8px">Thank-you <span class="muted">(Order Complete Page)</span></h3>
+    <pre><code>&lt;script&gt;
+(function () {
+  function getCookie(name) {
+    var m = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+
+  var p = new URLSearchParams(window.location.search);
+  var cid = p.get('cid') || null;
+  if (!cid) {
+    try { cid = localStorage.getItem('adsops_cid'); } catch (e) {}
+  }
+  if (!cid) cid = getCookie('adsops_cid');
+  if (!cid) return;
+
+  // Local self-test only
+  var ADSOPS_BASE = 'http://localhost:8010/';
+
+  var payload = {
+    click_id: cid,
+    order_id: '__ORDER_ID__',
+    value: __ORDER_VALUE__,
+    currency: 'KRW',
+    source: 'cafe24_js'
+  };
+
+  // Primary: POST (needs CORS). Fallback: pixel GET (no CORS).
+  fetch(ADSOPS_BASE + 'events/conversion', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).catch(function () {
+    var qs = new URLSearchParams(payload).toString();
+    (new Image()).src = ADSOPS_BASE + 'events/conversion.gif?' + qs;
+  });
+})();
+&lt;/script&gt;</code></pre>
+  </section>
+{% endblock %}

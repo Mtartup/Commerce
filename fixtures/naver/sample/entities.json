@@ -1,0 +1,36 @@
+[
+  {
+    "platform": "naver",
+    "account_id": "naver_demo_account",
+    "entity_type": "campaign",
+    "entity_id": "naver_camp_1",
+    "parent_type": null,
+    "parent_id": null,
+    "name": "Naver PowerLink Campaign 1",
+    "status": "enabled",
+    "meta_json": { "product_type": "powerlink" }
+  },
+  {
+    "platform": "naver",
+    "account_id": "naver_demo_account",
+    "entity_type": "adgroup",
+    "entity_id": "naver_grp_1",
+    "parent_type": "campaign",
+    "parent_id": "naver_camp_1",
+    "name": "Group 1",
+    "status": "enabled",
+    "meta_json": { "product_type": "powerlink" }
+  },
+  {
+    "platform": "naver",
+    "account_id": "naver_demo_account",
+    "entity_type": "keyword",
+    "entity_id": "naver_kw_1",
+    "parent_type": "adgroup",
+    "parent_id": "naver_grp_1",
+    "name": "keyword demo",
+    "status": "enabled",
+    "meta_json": { "product_type": "powerlink" }
+  }
+]
+

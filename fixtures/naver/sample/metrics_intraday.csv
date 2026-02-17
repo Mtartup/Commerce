@@ -1,0 +1,3 @@
+platform,account_id,entity_type,entity_id,hour_ts,spend,impressions,clicks,conversions,conversion_value,metrics_json
+naver,naver_demo_account,campaign,naver_camp_1,2026-02-15T10:00:00+09:00,60000,120000,80,0,0,"{""product_type"":""powerlink"",""fixture"":true}"
+

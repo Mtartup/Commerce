@@ -1,0 +1,32 @@
+[
+  {
+    "productOrderId": "SS-2026021500001",
+    "orderDate": "2026-02-15T10:12:00+09:00",
+    "productOrderStatus": "PAYED",
+    "totalPaymentAmount": 29800,
+    "currency": "KRW",
+    "orderPlaceId": "PC",
+    "orderPlaceName": "PC web",
+    "productName": "Sample Product X"
+  },
+  {
+    "productOrderId": "SS-2026021500002",
+    "orderDate": "2026-02-15T18:45:00+09:00",
+    "productOrderStatus": "PAYED",
+    "totalPaymentAmount": 15900,
+    "currency": "KRW",
+    "orderPlaceId": "MOBILE",
+    "orderPlaceName": "Mobile app",
+    "productName": "Sample Product Y"
+  },
+  {
+    "productOrderId": "SS-2026021600001",
+    "orderDate": "2026-02-16T11:00:00+09:00",
+    "productOrderStatus": "DELIVERING",
+    "totalPaymentAmount": 52000,
+    "currency": "KRW",
+    "orderPlaceId": "MOBILE",
+    "orderPlaceName": "Mobile web",
+    "productName": "Sample Product Z"
+  }
+]
