@@ -15,3 +15,20 @@ data/
 # IDE
 .idea/
 .vscode/
+
+# Local debug artifacts
+/$null
+/add_*.txt
+/agree_click.txt
+/btn_*.txt
+/buttons_output.txt
+/dropdown_options.txt
+/html_around_btn.txt
+/modal_check.txt
+/oauth_reauth.txt
+/radio*.txt
+/row_html.txt
+/set_all_write.txt
+/tables_output.txt
+/cafe24_*.png
+/screenshot_*.png
