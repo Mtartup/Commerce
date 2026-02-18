@@ -1,14 +1,16 @@
 {% extends "base.html" %}
 {% block content %}
-  <p style="margin:0 0 6px"><a href="/" style="color:var(--accent); text-decoration:none; font-size:13px">&larr; 홈</a></p>
+  <p class="breadcrumb"><a href="/">&larr; 홈</a></p>
   <h1 class="page-title">주문 상세</h1>
 
   <section class="card">
-    <div class="inline" style="gap:12px; margin-bottom:12px">
+    <div class="inline filter-inline">
       {% for s, label in [("cafe24","카페24"), ("coupang","쿠팡"), ("smartstore","스마트스토어")] %}
         <a class="chip {% if store == s %}tone-good{% endif %}" href="/store?store={{ s }}&days={{ days }}">{{ label }}</a>
       {% endfor %}
-      <a class="chip {% if days == 1 %}tone-good{% endif %}" href="/store?store={{ store }}&days=1">오늘</a>
+      {% for d in [1, 7, 14, 30] %}
+        <a class="chip {% if days == d %}tone-good{% endif %}" href="/store?store={{ store }}&days={{ d }}">{{ d }}일</a>
+      {% endfor %}
     </div>
     <p class="muted">현재 로컬 전용입니다. 외부 주문은 직접 주문/클릭 이벤트를 가져와서 반영합니다.</p>
     <p class="note">
@@ -18,18 +20,52 @@
   </section>
 
   <section class="card">
+    <div class="section-header">
+      <h2>요약</h2>
+      <span class="muted">{{ start }} ~ {{ end }}</span>
+    </div>
+    <div class="summary-grid">
+      <article class="metric">
+        <div class="label">총 주문</div>
+        <div class="value">{{ total_orders }}</div>
+      </article>
+      <article class="metric">
+        <div class="label">총 매출</div>
+        <div class="value">{{ "{:,.0f}".format(total_revenue) }}</div>
+      </article>
+      <article class="metric">
+        <div class="label">평균 주문금액</div>
+        <div class="value">{{ "{:,.0f}".format(avg_order_value) if avg_order_value is not none else "-" }}</div>
+      </article>
+    </div>
+    <div class="trend-panel top-gap">
+      <h3 class="panel-title">일별 주문 추이</h3>
+      <div class="sparkline large" aria-hidden="true">
+        {% for t in trend_rows %}
+          <span class="spark-bar" style="height: {{ '%.2f'|format(t.orders_norm) }}%"></span>
+        {% endfor %}
+      </div>
+      <div class="trend-footer muted">{{ start }} ~ {{ end }}</div>
+    </div>
+  </section>
+
+  <section class="card">
     <h2 class="sub-title">{{ start }} ~ {{ end }} 유입 경로 집계</h2>
     {% if summary|length == 0 %}
       <p class="muted">주문 요약이 없습니다.</p>
     {% else %}
-      <div class="summary-grid">
-        {% for s in summary %}
-          <div class="metric">
-            <div class="label">{{ s.inflow_path }}</div>
-            <div class="value">{{ s.orders }}</div>
+      <div class="viz-list">
+        {% for s in summary[:12] %}
+          <div class="viz-row">
+            <div class="viz-label">{{ s.inflow_path }}</div>
+            <div class="viz-track"><span class="viz-fill" style="width: {{ '%.2f'|format(s.ratio_norm) }}%"></span></div>
+            <div class="viz-value">{{ s.orders }}건 ({{ "%.1f"|format(s.ratio) }}%)</div>
           </div>
         {% endfor %}
       </div>
+      {% if summary|length > 12 %}
+        <p class="muted tiny">외 {{ summary|length - 12 }}개 경로</p>
+      {% endif %}
     {% endif %}
   </section>
 
@@ -58,7 +94,7 @@
                 <td><code>{{ o.order_id }}</code></td>
                 <td class="muted">{{ o.status or "" }}</td>
                 <td class="muted">{{ o.inflow_path or "" }}</td>
-                <td class="muted" style="max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                <td class="muted ellipsis-cell">
                   {{ o.inflow_path_detail or o.source_raw or o.referer or "" }}
                 </td>
                 <td class="muted">

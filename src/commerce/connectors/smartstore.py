@@ -35,6 +35,18 @@ def _to_date_kst(ts: str) -> str:
     return ts[:10]
 
 
+def _pick_ordered_at(payload: dict[str, Any]) -> str | None:
+    """
+    SmartStore payloads are inconsistent by endpoint/status.
+    Prefer real order placement time, then fallback to decision/change timestamps.
+    """
+    for key in ("orderDate", "placeOrderDate", "decisionDate", "lastChangedDate"):
+        v = payload.get(key)
+        if v is not None and str(v).strip():
+            return str(v).strip()
+    return None
+
+
 def _load_orders_json(path: Path) -> list[dict[str, Any]]:
     p = path / "orders.json"
     if not p.exists():
@@ -152,8 +164,8 @@ class SmartStoreConnector:
                 self.repo.upsert_store_order(
                     store="smartstore",
                     order_id=str(o.get("productOrderId") or o.get("order_id") or ""),
-                    ordered_at=o.get("orderDate") or o.get("ordered_at"),
-                    date_kst=_to_date_kst(o.get("orderDate") or o.get("ordered_at") or o.get("date_kst", "")),
+                    ordered_at=_pick_ordered_at(o) or o.get("ordered_at"),
+                    date_kst=_to_date_kst(_pick_ordered_at(o) or o.get("ordered_at") or o.get("date_kst", "")),
                     status=o.get("productOrderStatus") or o.get("status"),
                     amount=_parse_float(o.get("totalPaymentAmount") or o.get("amount")),
                     currency=o.get("currency", "KRW"),
@@ -228,11 +240,12 @@ class SmartStoreConnector:
                 po_id = str(po.get("productOrderId", ""))
                 if not po_id:
                     continue
+                ordered_at = _pick_ordered_at(po)
                 self.repo.upsert_store_order(
                     store="smartstore",
                     order_id=po_id,
-                    ordered_at=po.get("orderDate"),
-                    date_kst=_to_date_kst(po.get("orderDate", "")),
+                    ordered_at=ordered_at,
+                    date_kst=_to_date_kst(ordered_at or ""),
                     status=po.get("productOrderStatus"),
                     amount=_parse_float(po.get("totalPaymentAmount")),
                     currency="KRW",

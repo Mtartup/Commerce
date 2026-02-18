@@ -22,8 +22,8 @@ Non-goals (for now):
 
 Local-only caveat:
 
-- If Ads Ops runs on `localhost` only, real customer browsers cannot reach it.
-- Therefore "custom conversion endpoints" and redirect tracking links are for self-testing unless you host Ads Ops on a reachable URL.
+- If Commerce runs on `localhost` only, real customer browsers cannot reach it.
+- Therefore "custom conversion endpoints" and redirect tracking links are for self-testing unless you host Commerce on a reachable URL.
 - MVP optimization should rely on platform-native conversion tracking (Meta/Google/Naver) + importing/pulling platform reports.
 
 ## Core Concepts
@@ -89,13 +89,37 @@ Telegram + web inbox operate on proposals.
      - enable/disable rules
      - execution logs
 
+## Dashboard Data Contract
+
+Dashboard values must be interpreted with a consistent basis day:
+
+- `basis_day` selection:
+  1. Latest ad metrics day across enabled ad platforms (`naver`, `meta`, `google`)
+  2. Else latest `store_orders.date_kst`
+  3. Else today KST
+- Home totals (`orders`, `revenue`, `spend`, `ROAS`) are computed on `basis_day`.
+- Because channel latency differs, UI should show the basis day explicitly and not imply "today" when stale.
+
+ROAS semantics:
+
+- `blended_roas = total_revenue / total_spend`
+- `platform_roas = SUM(metrics_daily.conversion_value on ad platforms) / total_spend`
+- `attributed_roas = SUM(conversion_events.value linked via tracking) / total_spend`
+
+Revenue quality guards:
+
+- Exclude cancellation-like statuses from store revenue aggregation.
+- SmartStore order date fallback order:
+  - `orderDate` -> `placeOrderDate` -> `decisionDate` -> `lastChangedDate`
+  - Then derive `date_kst` from chosen `ordered_at`.
+
 ## Data Model (SQLite)
 
 Tables (MVP):
 
 - `connectors`: platform adapters + config JSON + enable flag
-- `entities`: normalized entity metadata (hierarchy via parent_id)
-- `metrics_daily`: canonical daily metrics + `metrics_json` for raw platform fields
+- `entities`: normalized entity metadata (hierarchy via parent_id, connector-scoped)
+- `metrics_daily`: canonical daily metrics + `metrics_json` for raw platform fields (connector-scoped)
 - `kpi_profiles`: objective definition + metric mapping config
 - `entity_kpi_profiles`: attach KPI profile to a concrete entity (campaign/adgroup/etc)
 - `rules`: rule definitions + params
@@ -103,6 +127,9 @@ Tables (MVP):
 - `executions`: execution audit trail
 
 Note: `metrics_daily` keeps canonical columns for common math and stores platform-specific fields in `metrics_json`.
+Legacy compatibility note:
+- Connector-scoped tables (`entities`, `metrics_daily`, `metrics_intraday`) use `connector_id`.
+- Dashboard read paths may fallback to unscoped legacy rows (`connector_id=''`) to preserve old import data visibility.
 
 ## Execution Safety Model
 

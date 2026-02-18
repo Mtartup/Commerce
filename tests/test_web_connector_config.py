@@ -185,7 +185,8 @@ def test_home_and_connectors_do_not_show_disabled_platforms(tmp_path: Path) -> N
     # tiktok is not in ui_platforms, so it should not appear and metrics should fallback
     assert "tiktok" not in home_text
     assert "tiktok" not in conns_text
-    assert "tiktok" not in metrics_text
+    assert 'value="tiktok"' not in metrics_text
+    assert 'value="naver" selected' in metrics_text
     assert "네이버" in home_text
     assert "메타" in home_text
     assert "구글" in home_text
@@ -291,6 +292,76 @@ def test_connectors_support_range_days(tmp_path: Path) -> None:
     text = resp.text
     assert f"기간: {start_day} ~ {today}" in text
     assert "최근 7일" in text
+
+
+
+
+def test_index_uses_latest_ad_data_day_for_totals(tmp_path: Path) -> None:
+    db_path = tmp_path / "ads.sqlite3"
+    AdsDB(db_path).init()
+    AdsDB(db_path).seed_default_connectors()
+    repo = Repo(db_path)
+
+    tz = ZoneInfo("Asia/Seoul")
+    today = datetime.now(tz=tz).date().isoformat()
+    ad_day = (datetime.now(tz=tz).date() - timedelta(days=2)).isoformat()
+
+    repo.upsert_metric_daily(
+        platform="naver",
+        account_id="test",
+        entity_type="campaign",
+        entity_id="n_c_latest",
+        day=ad_day,
+        spend=10000,
+        impressions=100,
+        clicks=10,
+        conversions=1,
+        conversion_value=20000,
+        metrics_json={},
+    )
+
+    repo.upsert_store_order(
+        store="cafe24",
+        order_id="ord_today",
+        ordered_at=f"{today}T10:00:00+09:00",
+        date_kst=today,
+        status="결제완료",
+        amount=999000,
+        currency="KRW",
+        order_place_id=None,
+        order_place_name=None,
+        inflow_path=None,
+        inflow_path_detail=None,
+        referer=None,
+        source_raw=None,
+        meta_json={},
+    )
+    repo.upsert_store_order(
+        store="cafe24",
+        order_id="ord_ad_day",
+        ordered_at=f"{ad_day}T10:00:00+09:00",
+        date_kst=ad_day,
+        status="결제완료",
+        amount=111000,
+        currency="KRW",
+        order_place_id=None,
+        order_place_name=None,
+        inflow_path=None,
+        inflow_path_detail=None,
+        referer=None,
+        source_raw=None,
+        meta_json={},
+    )
+
+    app = create_app(_settings_for_db(db_path))
+    client = TestClient(app)
+    resp = client.get("/")
+    assert resp.status_code == 200
+
+    text = html.unescape(resp.text)
+    assert f"기준일 {ad_day} KST" in text
+    assert "111,000원" in text
+    assert "999,000원" not in text
 
 
 def test_metrics_support_range_days(tmp_path: Path) -> None:
@@ -402,3 +473,156 @@ def test_metrics_alert_card_and_thresholds(tmp_path: Path) -> None:
     assert "CPA > 30,000원" in text
     assert "alert_bad" in text
     assert "safe_ok" in text
+
+
+def test_sidebar_renders_sync_button(tmp_path: Path) -> None:
+    db_path = tmp_path / "ads.sqlite3"
+    AdsDB(db_path).init()
+    AdsDB(db_path).seed_default_connectors()
+
+    app = create_app(_settings_for_db(db_path))
+    client = TestClient(app)
+    resp = client.get("/metrics?platform=naver&entity_type=campaign")
+    assert resp.status_code == 200
+
+    text = resp.text
+    assert 'action="/sync"' in text
+    assert "지금 동기화" in text
+
+
+def test_sidebar_sync_button_preserves_query_in_next_hidden(tmp_path: Path) -> None:
+    db_path = tmp_path / "ads.sqlite3"
+    AdsDB(db_path).init()
+    AdsDB(db_path).seed_default_connectors()
+
+    app = create_app(_settings_for_db(db_path))
+    client = TestClient(app)
+    resp = client.get("/metrics?platform=meta&entity_type=adset&days=7")
+    assert resp.status_code == 200
+
+    text = html.unescape(resp.text)
+    assert 'name="next" value="/metrics?platform=meta&entity_type=adset&days=7"' in text
+
+
+def test_sync_route_runs_tick_and_redirects_back(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "ads.sqlite3"
+    AdsDB(db_path).init()
+    AdsDB(db_path).seed_default_connectors()
+
+    calls: list[str] = []
+
+    def _fake_run_tick(_settings: Settings) -> None:
+        calls.append("ok")
+
+    monkeypatch.setattr("commerce.worker.run_tick", _fake_run_tick)
+
+    app = create_app(_settings_for_db(db_path))
+    client = TestClient(app)
+    next_url = "/metrics?platform=naver&entity_type=campaign"
+    resp = client.post("/sync", data={"next": next_url}, follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert resp.headers.get("location") == next_url
+    assert len(calls) == 1
+    assert app.state.sync_status["running"] is False
+    assert app.state.sync_status["started_at"] is not None
+    assert app.state.sync_status["finished_at"] is not None
+    assert app.state.sync_status["last_error"] is None
+
+
+def test_sync_route_sanitizes_external_next_url(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "ads.sqlite3"
+    AdsDB(db_path).init()
+    AdsDB(db_path).seed_default_connectors()
+
+    monkeypatch.setattr("commerce.worker.run_tick", lambda _settings: None)
+
+    app = create_app(_settings_for_db(db_path))
+    client = TestClient(app)
+    resp = client.post("/sync", data={"next": "https://example.com/evil"}, follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert resp.headers.get("location") == "/"
+
+
+def test_sync_route_uses_referer_when_form_not_parsed(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "ads.sqlite3"
+    AdsDB(db_path).init()
+    AdsDB(db_path).seed_default_connectors()
+
+    monkeypatch.setattr("commerce.worker.run_tick", lambda _settings: None)
+
+    app = create_app(_settings_for_db(db_path))
+    client = TestClient(app)
+    resp = client.post(
+        "/sync",
+        headers={"referer": "http://testserver/metrics?platform=naver&entity_type=campaign"},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers.get("location") == "/metrics?platform=naver&entity_type=campaign"
+
+
+def test_sync_route_executes_tick_outside_event_loop(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "ads.sqlite3"
+    AdsDB(db_path).init()
+    AdsDB(db_path).seed_default_connectors()
+
+    calls: list[str] = []
+
+    def _fake_run_tick(_settings: Settings) -> None:
+        import asyncio
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            calls.append("no_running_loop")
+            return
+        raise AssertionError("run_tick must not run inside active event loop")
+
+    monkeypatch.setattr("commerce.worker.run_tick", _fake_run_tick)
+
+    app = create_app(_settings_for_db(db_path))
+    client = TestClient(app)
+    resp = client.post("/sync", data={"next": "/"}, follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert resp.headers.get("location") == "/"
+    assert calls == ["no_running_loop"]
+    assert app.state.sync_status["last_error"] is None
+
+
+def test_index_cards_link_to_store_and_platform_pages(tmp_path: Path) -> None:
+    db_path = tmp_path / "ads.sqlite3"
+    AdsDB(db_path).init()
+    AdsDB(db_path).seed_default_connectors()
+
+    app = create_app(_settings_for_db(db_path))
+    client = TestClient(app)
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    text = resp.text
+    assert '/store?store=cafe24' in text
+    assert '/store?store=smartstore' in text
+    assert '/store?store=coupang' in text
+    assert '/metrics?platform=naver&entity_type=campaign' in text
+    assert '/metrics?platform=meta&entity_type=campaign' in text
+    assert '/metrics?platform=google&entity_type=campaign' in text
+
+
+def test_index_hides_top_roas_cards(tmp_path: Path) -> None:
+    db_path = tmp_path / "ads.sqlite3"
+    AdsDB(db_path).init()
+    AdsDB(db_path).seed_default_connectors()
+
+    app = create_app(_settings_for_db(db_path))
+    client = TestClient(app)
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    text = html.unescape(resp.text)
+    assert "블렌디드 ROAS" not in text
+    assert "플랫폼 ROAS" not in text
+    assert "어트리뷰션 ROAS" not in text

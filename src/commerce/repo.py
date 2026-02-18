@@ -359,6 +359,39 @@ class Repo:
             row = conn.execute(sql, params).fetchone()
             return dict(row) if row else None
 
+    def get_latest_metrics_date(
+        self,
+        *,
+        platform: str,
+        entity_type: str | None = None,
+        connector_id: str | None = None,
+    ) -> str | None:
+        where = ["platform=?"]
+        params: list[Any] = [platform]
+        if entity_type:
+            where.append("entity_type=?")
+            params.append(entity_type)
+        self._append_connector_filter(where, params, connector_id)
+        sql = "SELECT MAX(date) AS latest_date FROM metrics_daily WHERE " + " AND ".join(where)
+        with self.connect() as conn:
+            row = conn.execute(sql, params).fetchone()
+            latest = row["latest_date"] if row else None
+            return str(latest) if latest else None
+
+    def get_latest_store_order_date(self, *, store: str | None = None) -> str | None:
+        where: list[str] = []
+        params: list[Any] = []
+        if store:
+            where.append("store=?")
+            params.append(store)
+        sql = "SELECT MAX(date_kst) AS latest_date FROM store_orders"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        with self.connect() as conn:
+            row = conn.execute(sql, params).fetchone()
+            latest = row["latest_date"] if row else None
+            return str(latest) if latest else None
+
     def list_metrics_daily_for_date(
         self,
         *,

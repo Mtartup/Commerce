@@ -22,6 +22,18 @@ from commerce.fixtures import (
 
 _DEFAULT_BASE_URL = "https://api.searchad.naver.com"
 
+# Column names for header-less TSV downloads (fileVersion=v2).
+# Verified via /stats JSON API cross-reference (2026-02-18):
+#   Col 11=impCnt, Col 12=clkCnt, Col 13=salesAmt (≈API value/1.1, VAT-exclusive).
+#   Col 14/15 unverified; Col 15 is consistently 0 → mapped to ccnt (safe default).
+_AD_DETAIL_COLUMNS = [
+    "statDt", "customerId", "nccCampaignId", "nccAdgroupId", "nccKeywordId",
+    "nccAdId", "businessChannelId", "timeRange", "reachCnt", "bidAmt",
+    "pcMobileType", "impCnt", "clkCnt", "salesAmt", "viewCnt", "ccnt",
+]
+
+_KNOWN_HEADER_NAMES = {"nccCampaignId", "impCnt", "clkCnt", "ccnt", "salesAmt"}
+
 
 def _read_text_best_effort(data: bytes) -> str:
     for enc in ("utf-8-sig", "utf-8", "cp949"):
@@ -229,12 +241,24 @@ async def _build_and_download_stat_report(
     return None
 
 
-def _parse_tsv(data: bytes) -> list[dict[str, Any]]:
+def _parse_tsv(
+    data: bytes,
+    *,
+    fieldnames: list[str] | None = None,
+) -> list[dict[str, Any]]:
     text = _read_text_best_effort(data)
     lines = [ln for ln in text.splitlines() if ln.strip() != ""]
     if not lines:
         return []
-    reader = csv.DictReader(lines, delimiter="\t")
+    # Auto-detect: if the first line contains known column headers, let
+    # DictReader use it; otherwise the file is header-less (v2 format) and
+    # we must supply explicit fieldnames.
+    first_cols = set(lines[0].split("\t"))
+    has_header = bool(first_cols & _KNOWN_HEADER_NAMES)
+    if has_header:
+        reader = csv.DictReader(lines, delimiter="\t")
+    else:
+        reader = csv.DictReader(lines, fieldnames=fieldnames, delimiter="\t")
     return list(reader)
 
 
@@ -427,7 +451,8 @@ class NaverSearchAdConnector:
             )
             if not blob:
                 continue
-            rows = _parse_tsv(blob)
+            col_map = {"AD_DETAIL": _AD_DETAIL_COLUMNS}
+            rows = _parse_tsv(blob, fieldnames=col_map.get(report_tp))
             if not rows:
                 continue
             self._ingest_report_rows(
@@ -462,12 +487,12 @@ class NaverSearchAdConnector:
         # Metrics fields
         impr_keys = ["impCnt", "Impressions", "노출수", "노출 수"]
         click_keys = ["clkCnt", "Clicks", "클릭수", "클릭 수"]
-        spend_keys = ["cost", "Cost", "총비용", "총 비용", "비용", "광고비", "spend"]
+        spend_keys = ["salesAmt", "cost", "Cost", "총비용", "총 비용", "비용", "광고비", "spend"]
         cpc_keys = ["cpc", "CPC", "평균CPC", "평균 CPC"]
 
         conv_all_keys = ["ccnt", "Conversions", "전환수", "전환 수", "전체전환수", "전체 전환수"]
         conv_purchase_keys = ["구매전환수", "구매 전환수", "구매수", "구매 수"]
-        value_all_keys = ["salesAmt", "Conv. value", "전환매출", "전환 매출", "전환가치", "전환 가치", "매출"]
+        value_all_keys = ["drtConvValue", "Conv. value", "전환매출", "전환 매출", "전환가치", "전환 가치", "매출"]
         value_purchase_keys = ["구매전환매출", "구매 전환매출", "구매금액", "구매 금액", "구매매출", "구매 매출"]
 
         agg: dict[tuple[str, str], dict[str, float]] = {}

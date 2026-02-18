@@ -19,6 +19,26 @@ Architecture:
 - Mini web app: dashboard, connectors health, pending action inbox, rules/profiles, execution logs
 - Local SQLite: single-file state + history (first-class for reliability)
 
+## Dashboard Semantics (Important)
+
+To prevent misleading numbers when ad channels update slower than order channels:
+
+- **Dashboard basis day (`day`) is not always today.**
+  - Prefer latest available ad metrics day among enabled ad platforms (`naver`, `meta`, `google`).
+  - If no ad metrics exist yet, fallback to latest store order day.
+  - If neither exists, fallback to today KST.
+- **ROAS definitions**
+  - `blended_roas = total_revenue / total_spend` (store revenue vs ad spend on the same basis day)
+  - `platform_roas = platform_conversion_value / total_spend`
+  - `attributed_roas = tracking-linked conversion_value / total_spend`
+- **Store revenue excludes cancellation-like statuses**
+  - `cafe24`: `취소`, `반품`, `환불`
+  - `smartstore` / `coupang`: `CANCEL`, `RETURN`, `REFUND`
+- **Connector health `ok/warn/err/off` includes freshness**
+  - `warn` can appear even with `last_sync_at` if latest data day is stale vs today.
+
+See `docs/dashboard-data-contract.md` for exact rules.
+
 ## Quick Start
 
 ```powershell
@@ -90,27 +110,27 @@ GOOGLE_ADS_CLIENT_SECRET=...
 GOOGLE_ADS_REFRESH_TOKEN=...
 ```
 
-### Sales Channels (Planned)
+### Sales Channels
 
 | Channel | API | Status |
 |---------|-----|--------|
-| Cafe24 (self-hosted mall) | REST API (orders) | CSV import done, API planned |
-| Cafe24 Analytics | Analytics API (visitors, keywords, ad attribution) | Planned |
-| Smart Store | Naver Commerce API (orders) | Planned |
-| Coupang | Wing API (orders) | Stub ready |
+| Cafe24 (self-hosted mall) | REST Admin API (orders) | API + CSV import done |
+| Cafe24 Analytics | Analytics API (visitors, keywords, ad attribution) | API done |
+| Smart Store | Naver Commerce API (orders) | API done |
+| Coupang | Wing API (orders) | API done |
 
 ### Why All Channels?
 
 ```
 Naver ad spend 10만원
-  ├→ Smart Store order 3건    ← need Smart Store API
+  ├→ Smart Store order 3건    ← Smart Store API 연동
   └→ Self-hosted mall order 1건  ← Cafe24 Orders (done)
 
 Meta ad spend 5만원
   └→ Self-hosted mall order 2건  ← Cafe24 Orders (done)
 
 Coupang ad spend 3만원
-  └→ Coupang order 4건        ← need Coupang API
+  └→ Coupang order 4건        ← Coupang API 연동
 ```
 
 Ad spend happens on one platform, but conversions happen on another.
@@ -120,7 +140,7 @@ Without all sales channel data, ROAS calculation is impossible.
 
 ```powershell
 # Standard daily CSV
-uv run commerce import daily --file .\imports\adsops_daily.csv
+uv run commerce import daily --file .\imports\commerce_daily.csv
 
 # Naver SearchAd CSV
 uv run commerce import naver --file .\imports\naver_campaign.csv --product-type powerlink --level campaign
@@ -141,6 +161,9 @@ uv run commerce import cafe24-orders --file .\imports\cafe24_orders.csv
 uv run commerce backfill --platform naver
 uv run commerce backfill --platform meta
 uv run commerce backfill --platform google
+
+# If multiple connectors exist for the same platform:
+uv run commerce backfill --platform naver --connector-name "Naver SearchAd"
 ```
 
 ## Demo Mode
@@ -172,3 +195,4 @@ uv run commerce tick
 
 See `DESIGN.md` for architecture.
 See `ROADMAP.md` for implementation phases.
+See `docs/dashboard-data-contract.md` for dashboard calculation and freshness policy.

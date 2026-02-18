@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
-  <p style="margin:0 0 6px"><a href="/" style="color:var(--accent); text-decoration:none; font-size:13px">&larr; 홈</a></p>
+  <p class="breadcrumb"><a href="/">&larr; 홈</a></p>
   <h1 class="page-title">광고 성과</h1>
 
   <section class="card">
-    <div class="inline" style="margin-bottom:10px">
+    <div class="inline filter-inline">
       <a class="chip {% if days == 1 %}tone-good{% endif %}" href="/metrics?platform={{ platform }}&entity_type={{ entity_type }}&date={{ day }}&conv_metric={{ conv_metric }}&days=1">오늘</a>
       <a class="chip {% if days == 7 %}tone-good{% endif %}" href="/metrics?platform={{ platform }}&entity_type={{ entity_type }}&date={{ day }}&conv_metric={{ conv_metric }}&days=7">최근 7일</a>
       <a class="chip {% if days == 30 %}tone-good{% endif %}" href="/metrics?platform={{ platform }}&entity_type={{ entity_type }}&date={{ day }}&conv_metric={{ conv_metric }}&days=30">최근 30일</a>
@@ -14,7 +14,7 @@
     <form method="get" action="/metrics" class="row">
       <input type="hidden" name="days" value="{{ days }}" />
       <input type="hidden" name="date" value="{{ day }}" />
-      <div class="inline" style="gap:12px; align-items:center">
+      <div class="inline filter-inline">
         <label>플랫폼</label>
         <select name="platform">
           <option value="naver" {% if platform == "naver" %}selected{% endif %}>네이버</option>
@@ -23,7 +23,7 @@
           <option value="cafe24_analytics" {% if platform == "cafe24_analytics" %}selected{% endif %}>카페24 분석</option>
         </select>
       </div>
-      <div class="inline" style="gap:12px; align-items:center">
+      <div class="inline filter-inline">
         <label>단위</label>
         <select name="entity_type">
           {% for e in entity_options %}
@@ -31,7 +31,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="inline" style="gap:12px; align-items:center">
+      <div class="inline filter-inline">
         <label>전환값</label>
         <select name="conv_metric">
           {% for cm in ["primary","all"] %}
@@ -44,18 +44,79 @@
       <button type="submit">조회</button>
     </form>
 
-    <details style="margin-top: 10px">
+    <details class="top-gap">
       <summary class="chip">고급: 날짜 직접 입력</summary>
-      <form method="get" action="/metrics" class="row" style="margin-top:8px">
+      <form method="get" action="/metrics" class="row top-gap-sm">
         <input type="hidden" name="days" value="{{ days }}" />
         <input type="hidden" name="platform" value="{{ platform }}" />
         <input type="hidden" name="entity_type" value="{{ entity_type }}" />
         <input type="hidden" name="conv_metric" value="{{ conv_metric }}" />
         <label>끝 날짜(KST)</label>
-        <input name="date" value="{{ day }}" style="width:160px" />
+        <input name="date" value="{{ day }}" class="date-input" />
         <button type="submit">적용</button>
       </form>
     </details>
+  </section>
+
+  <section class="card">
+    <div class="section-header">
+      <h2>요약</h2>
+      <span class="muted">현재 선택 기준</span>
+    </div>
+    <div class="summary-grid">
+      <article class="metric">
+        <div class="label">총 지출</div>
+        <div class="value">{{ "{:,.0f}".format(summary_spend) }}</div>
+      </article>
+      <article class="metric">
+        <div class="label">총 클릭</div>
+        <div class="value">{{ "{:,.0f}".format(summary_clicks) }}</div>
+      </article>
+      <article class="metric">
+        <div class="label">총 전환</div>
+        <div class="value">{{ "{:,.0f}".format(summary_conv) }}</div>
+      </article>
+      <article class="metric">
+        <div class="label">총 매출</div>
+        <div class="value">{{ "{:,.0f}".format(summary_value) }}</div>
+      </article>
+      <article class="metric">
+        <div class="label">ROAS</div>
+        <div class="value">{{ "%.2f"|format(summary_roas) if summary_roas is not none else "-" }}</div>
+      </article>
+      <article class="metric">
+        <div class="label">CVR / CPA</div>
+        <div class="value">{{ "%.2f"|format(summary_cvr) }}% / {{ "%.0f"|format(summary_cpa) if summary_cpa is not none else "-" }}</div>
+      </article>
+    </div>
+
+    <div class="trend-grid top-gap">
+      <div class="trend-panel">
+        <h3 class="panel-title">일별 지출 추이</h3>
+        <div class="sparkline large" aria-hidden="true">
+          {% for t in trend_rows %}
+            <span class="spark-bar" style="height: {{ '%.2f'|format(t.spend_norm) }}%"></span>
+          {% endfor %}
+        </div>
+        <div class="trend-footer muted">{{ trend_rows[0].day if trend_rows else day }} ~ {{ trend_rows[-1].day if trend_rows else day }}</div>
+      </div>
+      <div class="trend-panel">
+        <h3 class="panel-title">지출 상위 엔티티</h3>
+        {% if top_spend_rows|length == 0 %}
+          <p class="muted">데이터 없음</p>
+        {% else %}
+          <div class="viz-list">
+            {% for r in top_spend_rows %}
+              <div class="viz-row">
+                <div class="viz-label"><code>{{ r.entity_id }}</code></div>
+                <div class="viz-track"><span class="viz-fill" style="width: {{ '%.2f'|format(r.spend_ratio) }}%"></span></div>
+                <div class="viz-value">{{ "{:,.0f}".format(r.spend or 0) }}</div>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
   </section>
 
   <section class="card">
@@ -72,19 +133,18 @@
             <div class="metric-head">
               <div>
                 <div class="label">{{ m.entity_id }}</div>
-                <div class="muted">{{ "클릭 " + ("{0:,.0f}".format(m.derived_clicks)) }}</div>
+                <div class="muted">클릭 {{ "{:,.0f}".format(m.derived_clicks) }}</div>
               </div>
+              <span class="chip tone-danger">{{ m.alert_count }}개 경보</span>
             </div>
-            <div class="metric-rows">
+            <div class="viz-track"><span class="viz-fill danger" style="width: {{ '%.2f'|format(m.alert_spend_ratio) }}%"></span></div>
+            <div class="metric-rows compact">
               <div><span class="muted">ROAS</span><span>{{ '%.2f' % m.derived_roas }}</span></div>
               <div><span class="muted">CPA</span><span>{{ '%.0f' % m.derived_cpa if m.derived_cpa is not none else '-' }}</span></div>
-              <div>
-                <span class="muted">경보</span>
-                <span class="inline">
-                  {% for a in m.alerts %}
-                    <span class="chip tone-danger">{{ a }}</span>
-                  {% endfor %}
-                </span>
+              <div class="chips">
+                {% for a in m.alerts %}
+                  <span class="chip tone-danger">{{ a }}</span>
+                {% endfor %}
               </div>
             </div>
           </article>

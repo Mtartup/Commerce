@@ -77,16 +77,24 @@ async def _tick(settings: Settings) -> None:
     yesterday_kst = (now_kst.date() - timedelta(days=1)).isoformat()
 
     for c in enabled:
-        connector = build_connector(
-            c["platform"],
-            connector_id=c["id"],
-            name=c["name"],
-            config_json=c["config_json"],
-            repo=repo,
-            demo_mode=settings.demo_mode,
-        )
+        try:
+            connector = build_connector(
+                c["platform"],
+                connector_id=c["id"],
+                name=c["name"],
+                config_json=c["config_json"],
+                repo=repo,
+                demo_mode=settings.demo_mode,
+            )
+        except Exception as e:  # noqa: BLE001
+            repo.update_connector_sync_status(c["id"], ok=False, error=f"{type(e).__name__}: {e}")
+            continue
 
-        ok, _err = await connector.health_check()
+        try:
+            ok, _err = await connector.health_check()
+        except Exception as e:  # noqa: BLE001
+            repo.update_connector_sync_status(c["id"], ok=False, error=f"{type(e).__name__}: {e}")
+            continue
         if not ok and not settings.demo_mode:
             repo.update_connector_sync_status(c["id"], ok=False, error=_err)
             continue

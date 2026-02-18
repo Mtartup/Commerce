@@ -18,11 +18,35 @@
           </div>
         </div>
         <nav class="side-nav">
+          {% set sync_status = request.app.state.sync_status %}
           <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">홈</a>
           <a href="/store" class="{% if request.url.path.startswith('/store') %}active{% endif %}">주문</a>
           <a href="/metrics?platform=naver&entity_type=campaign" class="{% if request.url.path.startswith('/metrics') %}active{% endif %}">광고 성과</a>
           <div class="nav-divider"></div>
           <a href="/connectors" class="{% if request.url.path.startswith('/connectors') %}active{% endif %}">설정</a>
+          <form method="post" action="/sync" class="sync-form">
+            <input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}" />
+            <button type="submit" class="sync-button" {% if sync_status.running %}disabled{% endif %}>
+              {% if sync_status.running %}동기화 실행 중...{% else %}지금 동기화{% endif %}
+            </button>
+          </form>
+          <div class="sync-status">
+            <div class="sync-basis">
+              기준일 {{ dashboard_basis_day }} KST
+              {% if not dashboard_basis_is_today %}
+                <span class="muted">(오늘 {{ dashboard_basis_today_kst }}와 다름)</span>
+              {% endif %}
+            </div>
+            {% if sync_status.last_error %}
+              <div class="chip tone-danger">최근 실패</div>
+              <div class="sync-message">{{ sync_status.last_error }}</div>
+            {% elif sync_status.finished_at %}
+              <div class="chip tone-good">최근 완료</div>
+              <div class="sync-message">{{ sync_status.finished_at }}</div>
+            {% else %}
+              <div class="sync-message muted">동기화 이력 없음</div>
+            {% endif %}
+          </div>
           <details class="nav-advanced">
             <summary class="nav-advanced-toggle">고급</summary>
             <div class="nav-advanced-items">

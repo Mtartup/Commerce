@@ -56,7 +56,7 @@
 - Connector: `cafe24_analytics.py`
 - Endpoints: visitors, pageview, keyword sales, ad attribution, product sales
 - Token Bucket rate limit (40 tokens, 2/sec refill)
-- OAuth 2.0 (scope: `mall.read_analytics`)
+- OAuth 2.0 (scope: `mall.analytics`)
 
 ### Smart Store (Naver Commerce API)
 - Connector: `smartstore.py`
@@ -72,3 +72,16 @@
 - Cross-channel daily summary: total sales by channel + total ad spend by platform
 - True ROAS calculation: ad spend (platform A) → conversion (channel B)
 - Telegram daily digest push
+
+## Current Snapshot (2026-02-17)
+
+- Connector-scoped schema migration completed (`schema_version=5`)
+- Sales channel ingestion:
+  - Cafe24 orders API + CSV import: working
+  - SmartStore API: working (date fallback normalized)
+  - Coupang API: working (current sync status filter: `ACCEPT`)
+  - Cafe24 Analytics API: working
+- Dashboard:
+  - Basis-day alignment implemented for ad/store lag handling
+  - Blended/platform/attributed ROAS split implemented
+  - Freshness-aware connector health warnings implemented

@@ -140,7 +140,7 @@ Visitor counts by referring domain.
 | Endpoint | API field | DB column (`metrics_daily`) | entity_type |
 |----------|-----------|---------------------------|-------------|
 | visitors/view | `visitCount` | `impressions` | `store` |
-| visitors/pageview | `pageviewCount` | `clicks` | `pageview` |
+| visitors/pageview | `pageviewCount` | `clicks` | `store` |
 | products/sales | `orderCount` | `conversions` | `product` |
 | products/sales | `salesAmount` | `conversion_value` | `product` |
 | visitpaths/domains | `visitCount` | `clicks` | `domain` |

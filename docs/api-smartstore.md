@@ -97,7 +97,7 @@ Fetch full order details for a batch of product order IDs (max 300 per request).
       "productOrder": {
         "productOrderId": "2026021512345601",
         "orderId": "2026021512345600",
-        "orderDate": "2026-02-15T10:00:00.000+09:00",
+        "placeOrderDate": "2026-02-15T10:00:00.000+09:00",
         "productOrderStatus": "PAYED",
         "totalPaymentAmount": 29900,
         "orderPlaceId": "NAVER_SEARCH",
@@ -117,13 +117,25 @@ Retrieve a single product order by ID (used for spot-checks, not bulk sync).
 | API field | DB column (`store_orders`) | Notes |
 |-----------|---------------------------|-------|
 | `productOrderId` | `order_id` | Primary key per order line |
-| `orderDate` | `ordered_at` | ISO-8601 KST |
-| `orderDate[:10]` | `date_kst` | Extracted YYYY-MM-DD |
+| `orderDate` or `placeOrderDate` | `ordered_at` | ISO-8601 KST (fallback order) |
+| `ordered_at[:10]` | `date_kst` | Extracted YYYY-MM-DD |
 | `productOrderStatus` | `status` | PAYED, DELIVERING, DELIVERED, etc. |
 | `totalPaymentAmount` | `amount` | Integer (KRW, no decimals) |
 | `orderPlaceId` | `order_place_id` | Inflow channel code |
 | `orderPlaceName` | `order_place_name` | Human-readable channel name |
 | *(full object)* | `meta_json` | Raw JSON for audit |
+
+### Date fallback policy (implemented)
+
+SmartStore payloads are not always uniform across endpoints/statuses.
+This connector sets `ordered_at` by the first available value in:
+
+1. `orderDate`
+2. `placeOrderDate`
+3. `decisionDate`
+4. `lastChangedDate`
+
+Then `date_kst = ordered_at[:10]`.
 
 ## Rate Limits
 

@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
+from threading import Lock
 from typing import Any
-from urllib.parse import urlencode, urlparse, parse_qsl, urlunparse
+from urllib.parse import urlencode, urlparse, parse_qsl, parse_qs, urlunparse
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -69,6 +71,93 @@ def _normalize_rule_params(rule_type: str, raw_json: str) -> dict[str, Any]:
     }
 
 
+def _safe_next_path(next_url: str) -> str:
+    candidate = (next_url or "").strip()
+    if not candidate:
+        return "/"
+    parsed = urlparse(candidate)
+    if parsed.scheme or parsed.netloc:
+        return "/"
+    if not parsed.path.startswith("/") or parsed.path.startswith("//"):
+        return "/"
+    if parsed.query:
+        return f"{parsed.path}?{parsed.query}"
+    return parsed.path
+
+
+def _ui_now(timezone_name: str) -> str:
+    return datetime.now(tz=ZoneInfo(timezone_name)).strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
+def _date_window(end_day: str, days: int) -> list[str]:
+    try:
+        end_date = datetime.fromisoformat(end_day).date()
+    except Exception:
+        return [end_day]
+    days_i = max(1, int(days))
+    start_date = end_date - timedelta(days=days_i - 1)
+    out: list[str] = []
+    cur = start_date
+    while cur <= end_date:
+        out.append(cur.isoformat())
+        cur += timedelta(days=1)
+    return out
+
+
+def _normalize_series(values: list[float | int], *, min_non_zero: float = 8.0) -> list[float]:
+    if not values:
+        return []
+    max_v = max(float(v or 0) for v in values)
+    if max_v <= 0:
+        return [0.0 for _ in values]
+    out: list[float] = []
+    for v in values:
+        raw = float(v or 0)
+        if raw <= 0:
+            out.append(0.0)
+            continue
+        pct = (raw / max_v) * 100.0
+        out.append(max(min_non_zero, round(pct, 2)))
+    return out
+
+
+def _compute_dashboard_basis_day(
+    repo: Repo,
+    *,
+    timezone_name: str,
+    connectors: list[dict[str, Any]],
+) -> dict[str, Any]:
+    today_kst = now_kst_date_str(timezone_name)
+    ad_platforms = ("naver", "meta", "google")
+    ad_connectors = {c["platform"]: c for c in connectors if c.get("platform") in ad_platforms}
+
+    # Use latest available ad-data day as dashboard basis to avoid false-zero "today" cards.
+    ad_day_candidates: list[str] = []
+    enabled_ad_platforms = [p for p in ad_platforms if bool(ad_connectors.get(p, {}).get("enabled"))]
+    for p in (enabled_ad_platforms or list(ad_platforms)):
+        c = ad_connectors.get(p, {})
+        cid = str(c.get("id") or "") or None
+        latest = (
+            repo.get_latest_metrics_date(platform=p, entity_type="campaign", connector_id=cid)
+            or repo.get_latest_metrics_date(platform=p, entity_type="campaign")
+            or repo.get_latest_metrics_date(platform=p, connector_id=cid)
+            or repo.get_latest_metrics_date(platform=p)
+        )
+        if latest:
+            ad_day_candidates.append(latest)
+
+    day = max(ad_day_candidates) if ad_day_candidates else today_kst
+    if not ad_day_candidates:
+        latest_store = repo.get_latest_store_order_date()
+        if latest_store:
+            day = latest_store
+    return {
+        "day": day,
+        "today_kst": today_kst,
+        "is_today": day == today_kst,
+    }
+
+
 def create_app(settings: Settings) -> FastAPI:
     AdsDB(settings.db_path).init()
     repo = Repo(settings.db_path)
@@ -98,10 +187,32 @@ def create_app(settings: Settings) -> FastAPI:
         "cafe24_analytics": ["store", "product", "domain"],
     }
 
+    def _template_common_context(_request: Request) -> dict[str, Any]:
+        basis = _compute_dashboard_basis_day(
+            repo,
+            timezone_name=settings.timezone,
+            connectors=repo.list_connectors(),
+        )
+        return {
+            "dashboard_basis_day": basis["day"],
+            "dashboard_basis_today_kst": basis["today_kst"],
+            "dashboard_basis_is_today": basis["is_today"],
+        }
+
     base_dir = Path(__file__).resolve().parent
-    templates = Jinja2Templates(directory=str(base_dir / "templates"))
+    templates = Jinja2Templates(
+        directory=str(base_dir / "templates"),
+        context_processors=[_template_common_context],
+    )
 
     app = FastAPI(title="Commerce")
+    app.state.sync_lock = Lock()
+    app.state.sync_status = {
+        "running": False,
+        "started_at": None,
+        "finished_at": None,
+        "last_error": None,
+    }
     app.mount("/static", StaticFiles(directory=str(base_dir / "static")), name="static")
     app.add_middleware(
         CORSMiddleware,
@@ -112,22 +223,68 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request):
-        all_connectors = {c["platform"]: c for c in repo.list_connectors() if c.get("platform") in ui_platforms}
         connectors_list = repo.list_connectors()
+        all_connectors = {c["platform"]: c for c in connectors_list if c.get("platform") in ui_platforms}
         pending = repo.list_pending_proposals(limit=20)
-        day = now_kst_date_str(settings.timezone)
+        ad_platforms = ("naver", "meta", "google")
+        basis = _compute_dashboard_basis_day(
+            repo,
+            timezone_name=settings.timezone,
+            connectors=connectors_list,
+        )
+        day = basis["day"]
+        today_kst = basis["today_kst"]
+        is_today = basis["is_today"]
+        trend_days = _date_window(day, 7)
+
+        def _sum_platform_metrics_day(
+            *,
+            platform: str,
+            connector_id: str | None,
+            metric_day: str,
+            entity_type: str | None = None,
+        ) -> dict[str, float]:
+            if entity_type:
+                scoped = repo.sum_metrics_daily(
+                    platform=platform,
+                    connector_id=connector_id,
+                    day=metric_day,
+                    entity_type=entity_type,
+                )
+                if scoped["entity_count"] == 0 and connector_id:
+                    return repo.sum_metrics_daily(platform=platform, day=metric_day, entity_type=entity_type)
+                return scoped
+
+            scoped = repo.sum_metrics_daily(
+                platform=platform,
+                connector_id=connector_id,
+                day=metric_day,
+            )
+            if scoped["entity_count"] == 0 and connector_id:
+                return repo.sum_metrics_daily(platform=platform, day=metric_day)
+            return scoped
+
         # --- Platform cards (ad channels) ---
         platform_cards = []
         total_spend = 0.0
         total_ad_clicks = 0
-        total_platform_value = 0.0
-        for platform in ("naver", "meta", "google"):
+        for platform in ad_platforms:
             connector = all_connectors.get(platform, {})
             enabled = bool(connector.get("enabled"))
-            metrics_campaign = repo.sum_metrics_daily(platform=platform, day=day, entity_type="campaign")
+            connector_id = str(connector.get("id") or "") or None
+            metrics_campaign = _sum_platform_metrics_day(
+                platform=platform,
+                connector_id=connector_id,
+                metric_day=day,
+                entity_type="campaign",
+            )
             metrics = metrics_campaign
             if metrics["entity_count"] == 0:
-                metrics = repo.sum_metrics_daily(platform=platform, day=day)
+                metrics = _sum_platform_metrics_day(
+                    platform=platform,
+                    connector_id=connector_id,
+                    metric_day=day,
+                )
             spend = metrics["spend"] or 0
             clicks = metrics["clicks"] or 0
             conv = metrics["conversions"] or 0
@@ -135,9 +292,18 @@ def create_app(settings: Settings) -> FastAPI:
             cvr = (conv / clicks) if clicks else 0
             cpa = (spend / conv) if conv else None
             roas = (value / spend) if spend else None
-            total_spend += spend
-            total_ad_clicks += int(clicks)
-            total_platform_value += value
+            spend_series: list[float] = []
+            for d in trend_days:
+                daily_metrics = _sum_platform_metrics_day(
+                    platform=platform,
+                    connector_id=connector_id,
+                    metric_day=d,
+                    entity_type="campaign",
+                )
+                spend_series.append(float(daily_metrics.get("spend") or 0))
+            if enabled:
+                total_spend += spend
+                total_ad_clicks += int(clicks)
             if not enabled:
                 health = "OFF"
                 tone = "muted"
@@ -169,8 +335,15 @@ def create_app(settings: Settings) -> FastAPI:
                     "tone": tone,
                     "day": day,
                     "entity_count": metrics["entity_count"],
+                    "trend_days": trend_days,
+                    "spend_series": spend_series,
+                    "spend_series_norm": _normalize_series(spend_series),
                 }
             )
+        max_platform_spend = max((float(c.get("spend") or 0) for c in platform_cards), default=0.0)
+        for c in platform_cards:
+            spend = float(c.get("spend") or 0)
+            c["spend_ratio"] = (spend / max_platform_spend * 100.0) if max_platform_spend > 0 else 0.0
 
         # --- Store cards (sales channels) — today only ---
         store_cards = []
@@ -185,24 +358,75 @@ def create_app(settings: Settings) -> FastAPI:
             )
             total_orders += stats["order_count"]
             total_revenue += float(stats["total_amount"] or 0)
-            store_cards.append({"store": store_name, "label": store_label, **stats})
-
-        # --- ROAS views ---
-        attributed_revenue = 0.0
-        for platform in ("naver", "meta", "google"):
-            conv = repo.sum_cafe24_conversions_for_platform_date(entity_platform=platform, day_kst=day)
-            attributed_revenue += float(conv.get("conversion_value") or 0)
-
-        blended_roas = (total_revenue / total_spend) if total_spend else None
-        platform_roas = (total_platform_value / total_spend) if total_spend else None
-        attributed_roas = (attributed_revenue / total_spend) if total_spend else None
+            orders_series: list[float] = []
+            for d in trend_days:
+                day_stats = repo.sum_store_orders(
+                    store=store_name,
+                    start_date_kst=d,
+                    end_date_kst=d,
+                    exclude_status_tokens=list(STORE_REVENUE_EXCLUDED_STATUS_TOKENS.get(store_name, ())),
+                )
+                orders_series.append(float(day_stats.get("order_count") or 0))
+            store_cards.append(
+                {
+                    "store": store_name,
+                    "label": store_label,
+                    "orders_series": orders_series,
+                    "orders_series_norm": _normalize_series(orders_series),
+                    **stats,
+                }
+            )
 
         # --- Funnel: cafe24_analytics store-level metrics (visitors/PV) ---
         funnel_metrics = repo.sum_metrics_daily(platform="cafe24_analytics", day=day, entity_type="store")
         funnel_visitors = int(funnel_metrics["impressions"])  # impressions = visitors
         funnel_pv = int(funnel_metrics["clicks"])  # clicks = page views
         pv_per_visit = (funnel_pv / funnel_visitors) if funnel_visitors else 0
-        funnel_cvr = (total_orders / funnel_visitors * 100) if funnel_visitors else 0
+
+        # --- Per-channel cards (자사몰 funnel + 판매채널별 주문) ---
+        store_stats_map = {s["store"]: s for s in store_cards}
+        cafe24_orders = store_stats_map.get("cafe24", {}).get("order_count", 0)
+        cafe24_revenue = float(store_stats_map.get("cafe24", {}).get("total_amount") or 0)
+        cafe24_cvr = (cafe24_orders / funnel_visitors * 100) if funnel_visitors else 0
+        channel_cards = [
+            {
+                "store": "cafe24",
+                "label": "자사몰(카페24)",
+                "visitors": funnel_visitors,
+                "pv": funnel_pv,
+                "pv_per_visit": pv_per_visit,
+                "order_count": cafe24_orders,
+                "cvr": cafe24_cvr,
+                "total_amount": cafe24_revenue,
+                "orders_series": store_stats_map.get("cafe24", {}).get("orders_series", []),
+                "orders_series_norm": store_stats_map.get("cafe24", {}).get("orders_series_norm", []),
+                "has_funnel": True,
+            },
+            {
+                "store": "smartstore",
+                "label": "스마트스토어",
+                "order_count": store_stats_map.get("smartstore", {}).get("order_count", 0),
+                "total_amount": float(store_stats_map.get("smartstore", {}).get("total_amount") or 0),
+                "orders_series": store_stats_map.get("smartstore", {}).get("orders_series", []),
+                "orders_series_norm": store_stats_map.get("smartstore", {}).get("orders_series_norm", []),
+                "has_funnel": False,
+            },
+            {
+                "store": "coupang",
+                "label": "쿠팡",
+                "order_count": store_stats_map.get("coupang", {}).get("order_count", 0),
+                "total_amount": float(store_stats_map.get("coupang", {}).get("total_amount") or 0),
+                "orders_series": store_stats_map.get("coupang", {}).get("orders_series", []),
+                "orders_series_norm": store_stats_map.get("coupang", {}).get("orders_series_norm", []),
+                "has_funnel": False,
+            },
+        ]
+        max_channel_revenue = max((float(c.get("total_amount") or 0) for c in channel_cards), default=0.0)
+        for c in channel_cards:
+            revenue = float(c.get("total_amount") or 0)
+            c["revenue_ratio"] = (revenue / max_channel_revenue * 100.0) if max_channel_revenue > 0 else 0.0
+        # funnel_cvr: cafe24 전용 (기존 total_orders 대신 cafe24_cvr 사용)
+        funnel_cvr = cafe24_cvr
 
         # --- Connector health summary ---
         connector_health = []
@@ -216,10 +440,32 @@ def create_app(settings: Settings) -> FastAPI:
                 status = "off"
             elif c.get("last_error"):
                 status = "err"
-            elif c.get("last_sync_at"):
-                status = "ok"
             else:
-                status = "warn"
+                status = "ok" if c.get("last_sync_at") else "warn"
+                if p in ad_platforms:
+                    cid = str(c.get("id") or "") or None
+                    latest = (
+                        repo.get_latest_metrics_date(platform=p, entity_type="campaign", connector_id=cid)
+                        or repo.get_latest_metrics_date(platform=p, entity_type="campaign")
+                        or repo.get_latest_metrics_date(platform=p, connector_id=cid)
+                        or repo.get_latest_metrics_date(platform=p)
+                    )
+                    if (not latest) or latest < today_kst:
+                        status = "warn"
+                elif p == "cafe24_analytics":
+                    cid = str(c.get("id") or "") or None
+                    latest = (
+                        repo.get_latest_metrics_date(platform=p, entity_type="store", connector_id=cid)
+                        or repo.get_latest_metrics_date(platform=p, entity_type="store")
+                        or repo.get_latest_metrics_date(platform=p, connector_id=cid)
+                        or repo.get_latest_metrics_date(platform=p)
+                    )
+                    if (not latest) or latest < today_kst:
+                        status = "warn"
+                elif p in {"coupang", "smartstore"}:
+                    latest = repo.get_latest_store_order_date(store=p)
+                    if (not latest) or latest < today_kst:
+                        status = "warn"
             connector_health.append({"platform": p, "label": label, "status": status})
 
         return templates.TemplateResponse(
@@ -228,16 +474,16 @@ def create_app(settings: Settings) -> FastAPI:
                 "request": request,
                 "platform_cards": platform_cards,
                 "store_cards": store_cards,
+                "channel_cards": channel_cards,
                 "pending": pending,
                 "day": day,
+                "today_kst": today_kst,
+                "is_today": is_today,
+                "dashboard_trend_days": trend_days,
                 "total_orders": total_orders,
                 "total_revenue": total_revenue,
                 "total_spend": total_spend,
                 "total_ad_clicks": total_ad_clicks,
-                "blended_roas": blended_roas,
-                "platform_roas": platform_roas,
-                "attributed_roas": attributed_roas,
-                "attributed_revenue": attributed_revenue,
                 "funnel_visitors": funnel_visitors,
                 "funnel_pv": funnel_pv,
                 "pv_per_visit": pv_per_visit,
@@ -313,6 +559,45 @@ def create_app(settings: Settings) -> FastAPI:
                 "end_day": end_day,
             },
         )
+
+    @app.post("/sync")
+    async def run_sync(request: Request):
+        next_raw = str(request.query_params.get("next") or "").strip()
+        if not next_raw:
+            ctype = (request.headers.get("content-type") or "").lower()
+            if "application/x-www-form-urlencoded" in ctype:
+                try:
+                    body_text = (await request.body()).decode("utf-8", errors="ignore")
+                    parsed = parse_qs(body_text, keep_blank_values=True)
+                    next_raw = str((parsed.get("next") or [""])[0] or "").strip()
+                except Exception:
+                    next_raw = ""
+        if not next_raw:
+            ref = str(request.headers.get("referer") or "").strip()
+            if ref:
+                parsed_ref = urlparse(ref)
+                next_raw = parsed_ref.path + (f"?{parsed_ref.query}" if parsed_ref.query else "")
+        next_url = _safe_next_path(next_raw)
+        sync_lock: Lock = request.app.state.sync_lock
+        sync_status: dict[str, Any] = request.app.state.sync_status
+        if not sync_lock.acquire(blocking=False):
+            sync_status["last_error"] = "동기화가 이미 실행 중입니다."
+            return RedirectResponse(url=next_url, status_code=303)
+
+        sync_status["running"] = True
+        sync_status["started_at"] = _ui_now(settings.timezone)
+        sync_status["last_error"] = None
+        try:
+            from commerce.worker import run_tick
+
+            await run_in_threadpool(run_tick, settings)
+        except Exception as e:  # noqa: BLE001
+            sync_status["last_error"] = f"{type(e).__name__}: {e}"
+        finally:
+            sync_status["running"] = False
+            sync_status["finished_at"] = _ui_now(settings.timezone)
+            sync_lock.release()
+        return RedirectResponse(url=next_url, status_code=303)
 
     @app.post("/connectors/{connector_id}/enable")
     def enable_connector(connector_id: str):
@@ -557,7 +842,13 @@ def create_app(settings: Settings) -> FastAPI:
         except Exception:
             days_i = 1
         days_i = max(1, min(days_i, 30))
-        end_day = (date or "").strip() or now_kst_date_str(settings.timezone)
+        platform = (platform or "").strip().lower()
+        if platform not in ui_platforms:
+            platform = "naver"
+
+        end_day = (date or "").strip()
+        if not end_day:
+            end_day = repo.get_latest_metrics_date(platform=platform) or now_kst_date_str(settings.timezone)
         try:
             parsed_end = datetime.fromisoformat(end_day).date()
         except Exception:
@@ -567,9 +858,6 @@ def create_app(settings: Settings) -> FastAPI:
         start_day = end_day
         if days_i > 1:
             start_day = start_dt.isoformat()
-        platform = (platform or "").strip().lower()
-        if platform not in ui_platforms:
-            platform = "naver"
         alert_rules = {
             "clicks_min": 20,
             "roas_min": 1.0,
@@ -669,6 +957,47 @@ def create_app(settings: Settings) -> FastAPI:
             enriched.append(mm)
         alert_rows = [row for row in enriched if row["alert_count"] > 0]
         alert_rows.sort(key=lambda r: (-r["alert_count"], r["derived_roas"]))
+        total_spend = sum(float(r.get("spend") or 0) for r in enriched)
+        total_clicks = sum(float(r.get("clicks") or 0) for r in enriched)
+        total_conv = sum(float(r.get("derived_conv") or 0) for r in enriched)
+        total_value = sum(float(r.get("derived_value") or 0) for r in enriched)
+        summary_roas = (total_value / total_spend) if total_spend else None
+        summary_cvr = (total_conv / total_clicks * 100.0) if total_clicks else 0.0
+        summary_cpa = (total_spend / total_conv) if total_conv else None
+
+        trend_days = _date_window(end_day, days_i)
+        trend_rows: list[dict[str, Any]] = []
+        for d in trend_days:
+            dm = repo.sum_metrics_daily(platform=platform, day=d, entity_type=entity_type)
+            spend = float(dm.get("spend") or 0)
+            clicks = float(dm.get("clicks") or 0)
+            conv = float(dm.get("conversions") or 0)
+            value = float(dm.get("conversion_value") or 0)
+            trend_rows.append(
+                {
+                    "day": d,
+                    "spend": spend,
+                    "clicks": clicks,
+                    "conversions": conv,
+                    "value": value,
+                    "roas": (value / spend) if spend else 0.0,
+                }
+            )
+        spend_norm = _normalize_series([r["spend"] for r in trend_rows], min_non_zero=10.0)
+        for i, row in enumerate(trend_rows):
+            row["spend_norm"] = spend_norm[i] if i < len(spend_norm) else 0.0
+
+        top_spend_rows = sorted(enriched, key=lambda r: float(r.get("spend") or 0), reverse=True)[:8]
+        top_spend_max = max((float(r.get("spend") or 0) for r in top_spend_rows), default=0.0)
+        for row in top_spend_rows:
+            spend = float(row.get("spend") or 0)
+            row["spend_ratio"] = (spend / top_spend_max * 100.0) if top_spend_max > 0 else 0.0
+
+        alert_spend_max = max((float(r.get("spend") or 0) for r in alert_rows[:8]), default=0.0)
+        for row in alert_rows:
+            spend = float(row.get("spend") or 0)
+            row["alert_spend_ratio"] = (spend / alert_spend_max * 100.0) if alert_spend_max > 0 else 0.0
+
         return templates.TemplateResponse(
             "metrics.html",
             {
@@ -685,6 +1014,15 @@ def create_app(settings: Settings) -> FastAPI:
                 "alert_rules": alert_rules,
                 "alert_count": len(alert_rows),
                 "alert_entities_top": alert_rows[:5],
+                "summary_spend": total_spend,
+                "summary_clicks": total_clicks,
+                "summary_conv": total_conv,
+                "summary_value": total_value,
+                "summary_roas": summary_roas,
+                "summary_cvr": summary_cvr,
+                "summary_cpa": summary_cpa,
+                "trend_rows": trend_rows,
+                "top_spend_rows": top_spend_rows,
             },
         )
 
@@ -702,12 +1040,61 @@ def create_app(settings: Settings) -> FastAPI:
         end = now_kst_date_str(settings.timezone)
         start_dt = datetime.now(tz=ZoneInfo(settings.timezone)).date() - timedelta(days=days_i - 1)
         start = start_dt.isoformat()
+        exclude_tokens = list(STORE_REVENUE_EXCLUDED_STATUS_TOKENS.get(store, ()))
+        totals = repo.sum_store_orders(
+            store=store,
+            start_date_kst=start,
+            end_date_kst=end,
+            exclude_status_tokens=exclude_tokens,
+        )
+        total_orders = int(totals.get("order_count") or 0)
+        total_revenue = float(totals.get("total_amount") or 0)
+        avg_order_value = (total_revenue / total_orders) if total_orders else None
+
         summary = repo.count_store_orders_by_inflow_path(
             store=store,
             start_date_kst=start,
             end_date_kst=end,
             limit=50,
         )
+        summary_total = sum(int(s.get("orders") or 0) for s in summary)
+        summary_enriched: list[dict[str, Any]] = []
+        for s in summary:
+            orders = int(s.get("orders") or 0)
+            ratio = (orders / summary_total * 100.0) if summary_total > 0 else 0.0
+            summary_enriched.append(
+                {
+                    **s,
+                    "ratio": ratio,
+                }
+            )
+        if summary_enriched:
+            ratio_norm = _normalize_series([s["ratio"] for s in summary_enriched], min_non_zero=12.0)
+            for i, s in enumerate(summary_enriched):
+                s["ratio_norm"] = ratio_norm[i] if i < len(ratio_norm) else 0.0
+
+        trend_days = _date_window(end, days_i)
+        trend_rows: list[dict[str, Any]] = []
+        for d in trend_days:
+            d_totals = repo.sum_store_orders(
+                store=store,
+                start_date_kst=d,
+                end_date_kst=d,
+                exclude_status_tokens=exclude_tokens,
+            )
+            trend_rows.append(
+                {
+                    "day": d,
+                    "orders": int(d_totals.get("order_count") or 0),
+                    "revenue": float(d_totals.get("total_amount") or 0),
+                }
+            )
+        trend_order_norm = _normalize_series([r["orders"] for r in trend_rows], min_non_zero=10.0)
+        trend_revenue_norm = _normalize_series([r["revenue"] for r in trend_rows], min_non_zero=10.0)
+        for i, r in enumerate(trend_rows):
+            r["orders_norm"] = trend_order_norm[i] if i < len(trend_order_norm) else 0.0
+            r["revenue_norm"] = trend_revenue_norm[i] if i < len(trend_revenue_norm) else 0.0
+
         orders = repo.list_store_orders(store=store, start_date_kst=start, end_date_kst=end, limit=200)
         return templates.TemplateResponse(
             "store.html",
@@ -717,7 +1104,12 @@ def create_app(settings: Settings) -> FastAPI:
                 "days": days_i,
                 "start": start,
                 "end": end,
-                "summary": summary,
+                "summary": summary_enriched,
+                "summary_total": summary_total,
+                "total_orders": total_orders,
+                "total_revenue": total_revenue,
+                "avg_order_value": avg_order_value,
+                "trend_rows": trend_rows,
                 "orders": orders,
             },
         )

@@ -147,6 +147,10 @@ Connector config `mode` must be set to `"api"` to enable live API calls.
 
 Default lookback on first run: 14 days.
 
+Implementation note:
+- Current connector intentionally pulls only `status=ACCEPT` for stable incremental ingestion.
+- If you need full lifecycle reporting (cancellation/returns by status transition), extend the connector to query additional statuses and/or separate status-history tables.
+
 ## Wing Console Setup
 
 1. Create a seller account at https://wing.coupang.com
