@@ -28,11 +28,18 @@ def _parse_float(v: Any) -> float | None:
         return None
 
 
-def _to_date_kst(ts: str) -> str:
-    """Extract YYYY-MM-DD from an ISO-ish timestamp, fallback to today KST."""
-    if not ts:
-        return datetime.now(tz=ZoneInfo("Asia/Seoul")).date().isoformat()
-    return ts[:10]
+def _to_date_kst(ts: str | None) -> str:
+    """Extract YYYY-MM-DD from an ISO-ish timestamp."""
+    value = (ts or "").strip()
+    if not value:
+        return ""
+
+    day = value[:10]
+    try:
+        datetime.fromisoformat(day)
+        return day
+    except ValueError:
+        return ""
 
 
 def _pick_ordered_at(payload: dict[str, Any]) -> str | None:
@@ -45,6 +52,18 @@ def _pick_ordered_at(payload: dict[str, Any]) -> str | None:
         if v is not None and str(v).strip():
             return str(v).strip()
     return None
+
+
+def _parse_last_changed_at(raw: str | Any) -> datetime:
+    """Normalize SmartStore cursor timestamps to timezone-aware KST datetime."""
+    value = ("" if raw is None else str(raw)).strip()
+    if not value:
+        raise ValueError("empty last_changed value")
+
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+    return parsed.astimezone(ZoneInfo("Asia/Seoul"))
 
 
 def _load_orders_json(path: Path) -> list[dict[str, Any]]:
@@ -161,11 +180,18 @@ class SmartStoreConnector:
             d = fixture_dir(self.ctx.platform, self.ctx.config)
             orders = _load_orders_json(d)
             for o in orders:
+                order_id = str(o.get("productOrderId") or o.get("order_id") or "").strip()
+                if not order_id:
+                    continue
+                ordered_at = _pick_ordered_at(o) or o.get("ordered_at")
+                date_kst = _to_date_kst(ordered_at or o.get("date_kst", ""))
+                if not date_kst:
+                    continue
                 self.repo.upsert_store_order(
                     store="smartstore",
-                    order_id=str(o.get("productOrderId") or o.get("order_id") or ""),
-                    ordered_at=_pick_ordered_at(o) or o.get("ordered_at"),
-                    date_kst=_to_date_kst(_pick_ordered_at(o) or o.get("ordered_at") or o.get("date_kst", "")),
+                    order_id=order_id,
+                    ordered_at=ordered_at,
+                    date_kst=date_kst,
                     status=o.get("productOrderStatus") or o.get("status"),
                     amount=_parse_float(o.get("totalPaymentAmount") or o.get("amount")),
                     currency=o.get("currency", "KRW"),
@@ -183,11 +209,14 @@ class SmartStoreConnector:
         # Naver Commerce API limits each query window to max 24 hours.
         client = _SmartStoreClient()
         cursor_key = f"smartstore:{self.ctx.connector_id}:last_changed_from"
-        last_changed = self.repo.get_meta(cursor_key)
+        raw_last_changed = self.repo.get_meta(cursor_key)
 
         now_kst = datetime.now(tz=ZoneInfo("Asia/Seoul"))
-        if last_changed:
-            window_start = datetime.fromisoformat(last_changed)
+        if raw_last_changed:
+            try:
+                window_start = _parse_last_changed_at(raw_last_changed)
+            except (ValueError, TypeError):
+                window_start = now_kst - timedelta(days=30)
         else:
             window_start = now_kst - timedelta(days=30)
 
@@ -241,11 +270,14 @@ class SmartStoreConnector:
                 if not po_id:
                     continue
                 ordered_at = _pick_ordered_at(po)
+                date_kst = _to_date_kst(ordered_at or "")
+                if not date_kst:
+                    continue
                 self.repo.upsert_store_order(
                     store="smartstore",
                     order_id=po_id,
                     ordered_at=ordered_at,
-                    date_kst=_to_date_kst(ordered_at or ""),
+                    date_kst=date_kst,
                     status=po.get("productOrderStatus"),
                     amount=_parse_float(po.get("totalPaymentAmount")),
                     currency="KRW",

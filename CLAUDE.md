@@ -29,9 +29,9 @@
 | Channel | API | CSV Import | Status |
 |---------|-----|------------|--------|
 | Cafe24 Orders | planned | done | active (import only) |
-| Cafe24 Analytics | planned | - | needs partner approval |
-| Smart Store | planned | - | planned |
-| Coupang | stub | - | planned |
+| Cafe24 Analytics | done | - | active |
+| Smart Store | done | - | active |
+| Coupang | done | - | active |
 
 ## Code Conventions
 
@@ -65,6 +65,31 @@ src/commerce/
   notify/         # Telegram bot
   web/            # FastAPI app + templates
 ```
+
+## Naver SearchAd API 직접 호출 패턴
+
+외부 스크립트에서 API 직접 호출 시:
+
+```python
+# 서명: path의 ? 앞만 사용
+sign_path = path.split('?')[0]
+msg = f"{timestamp}.{method}.{sign_path}"
+
+# 키워드 bid 수정: fields 파라미터 + nccAdgroupId 필수
+PUT /ncc/keywords/{kw_id}?fields=bidAmt
+body: {"nccKeywordId": kw_id, "nccAdgroupId": ag_id, "bidAmt": 200, "useGroupBidAmt": False}
+
+# 키워드 추가: body는 배열
+POST /ncc/keywords?nccAdgroupId={ag_id}
+body: [{"nccAdgroupId": ag_id, "keyword": "생착스프레이", "bidAmt": 200, "useGroupBidAmt": False}]
+
+# 캠페인 예산 수정
+PUT /ncc/campaigns/{cmp_id}?fields=budget
+body: {"nccCampaignId": cmp_id, "dailyBudget": 20000, "useDailyBudget": True}
+```
+
+- DB(`entities` 테이블)에 키워드 이름이 ID로만 저장됨 → API 직접 조회 필요
+- Python Windows 출력 시 이모지 사용 금지 (cp949 에러) 또는 stdout UTF-8 래핑
 
 ## Key Commands
 

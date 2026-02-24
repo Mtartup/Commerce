@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 from datetime import date, datetime, timedelta
@@ -543,6 +544,331 @@ class GoogleAdsConnector:
                 metrics_json=row.get("metrics_json") or {},
             )
 
+    # ------------------------------------------------------------------ #
+    # Write helpers                                                        #
+    # ------------------------------------------------------------------ #
+
+    def _payload(self, proposal: dict) -> dict:
+        """Extract and parse payload_json from a proposal dict."""
+        raw = proposal.get("payload_json") or "{}"
+        if isinstance(raw, dict):
+            return raw
+        try:
+            return json.loads(raw)
+        except Exception:
+            return {}
+
+    def _query_single(self, client: Any, cid: str, gaql: str) -> Any:
+        """Run a GAQL query and return the first result row, or None."""
+        ga_service = client.get_service("GoogleAdsService")
+        q = gaql.strip()
+        if "LIMIT" not in q.upper():
+            q = q + " LIMIT 1"
+        response = ga_service.search(customer_id=cid, query=q)
+        for row in response:
+            return row
+        return None
+
+    def _apply_pause(self, client: Any, cid: str, proposal: dict, payload: dict) -> dict:
+        entity_type = str(proposal.get("entity_type") or "").lower().strip()
+        entity_id = str(proposal.get("entity_id") or "").strip()
+        op_str = str(payload.get("op") or "pause").lower()
+        new_status_name = "ENABLED" if op_str in {"enable", "resume", "unpause"} else "PAUSED"
+
+        if entity_type == "campaign":
+            row = self._query_single(
+                client, cid,
+                f"SELECT campaign.status FROM campaign WHERE campaign.id = {entity_id}",
+            )
+            before_status = (
+                str(getattr(getattr(row, "campaign", None), "status", "UNKNOWN") or "UNKNOWN")
+                if row else "UNKNOWN"
+            )
+            svc = client.get_service("CampaignService")
+            op = client.get_type("CampaignOperation")
+            op.update.resource_name = f"customers/{cid}/campaigns/{entity_id}"
+            op.update.status = getattr(client.enums.CampaignStatusEnum, new_status_name)
+            op.update_mask.paths.extend(["status"])
+            resp = svc.mutate_campaigns(customer_id=cid, operations=[op])
+            resource_name = (
+                resp.results[0].resource_name
+                if resp.results
+                else f"customers/{cid}/campaigns/{entity_id}"
+            )
+
+        elif entity_type == "adgroup":
+            row = self._query_single(
+                client, cid,
+                f"SELECT ad_group.status FROM ad_group WHERE ad_group.id = {entity_id}",
+            )
+            before_status = (
+                str(getattr(getattr(row, "ad_group", None), "status", "UNKNOWN") or "UNKNOWN")
+                if row else "UNKNOWN"
+            )
+            svc = client.get_service("AdGroupService")
+            op = client.get_type("AdGroupOperation")
+            op.update.resource_name = f"customers/{cid}/adGroups/{entity_id}"
+            op.update.status = getattr(client.enums.AdGroupStatusEnum, new_status_name)
+            op.update_mask.paths.extend(["status"])
+            resp = svc.mutate_ad_groups(customer_id=cid, operations=[op])
+            resource_name = (
+                resp.results[0].resource_name
+                if resp.results
+                else f"customers/{cid}/adGroups/{entity_id}"
+            )
+
+        elif entity_type == "keyword":
+            ad_group_id = str(payload.get("parent_id") or "").strip()
+            if not ad_group_id:
+                row_ag = self._query_single(
+                    client, cid,
+                    f"SELECT ad_group.id FROM keyword_view "
+                    f"WHERE ad_group_criterion.criterion_id = {entity_id}",
+                )
+                if not row_ag:
+                    raise RuntimeError(
+                        f"Cannot find ad_group for keyword criterion_id={entity_id}"
+                    )
+                ad_group_id = str(
+                    getattr(getattr(row_ag, "ad_group", None), "id", "") or ""
+                ).strip()
+                if not ad_group_id:
+                    raise RuntimeError(
+                        f"Cannot resolve ad_group_id for keyword {entity_id}"
+                    )
+            row_s = self._query_single(
+                client, cid,
+                f"SELECT ad_group_criterion.status FROM ad_group_criterion "
+                f"WHERE ad_group_criterion.criterion_id = {entity_id} "
+                f"AND ad_group.id = {ad_group_id}",
+            )
+            before_status = (
+                str(
+                    getattr(getattr(row_s, "ad_group_criterion", None), "status", "UNKNOWN")
+                    or "UNKNOWN"
+                )
+                if row_s else "UNKNOWN"
+            )
+            resource_name = f"customers/{cid}/adGroupCriteria/{ad_group_id}~{entity_id}"
+            svc = client.get_service("AdGroupCriterionService")
+            op = client.get_type("AdGroupCriterionOperation")
+            op.update.resource_name = resource_name
+            op.update.status = getattr(client.enums.AdGroupCriterionStatusEnum, new_status_name)
+            op.update_mask.paths.extend(["status"])
+            svc.mutate_ad_group_criteria(customer_id=cid, operations=[op])
+
+        else:
+            raise RuntimeError(f"Unsupported entity_type for pause_entity: {entity_type!r}")
+
+        return {
+            "action": "pause_entity",
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "before": {"status": before_status},
+            "after": {"status": new_status_name},
+            "resource_name": resource_name,
+        }
+
+    def _apply_set_budget(self, client: Any, cid: str, proposal: dict, payload: dict) -> dict:
+        entity_id = str(proposal.get("entity_id") or "").strip()
+        new_budget_krw = int(payload.get("budget") or 0)
+        new_amount_micros = new_budget_krw * 1_000_000
+
+        # Step 1: get the campaign_budget resource name
+        row = self._query_single(
+            client, cid,
+            f"SELECT campaign.campaign_budget FROM campaign WHERE campaign.id = {entity_id}",
+        )
+        if not row:
+            raise RuntimeError(f"Campaign not found: entity_id={entity_id}")
+        budget_resource = str(
+            getattr(getattr(row, "campaign", None), "campaign_budget", "") or ""
+        ).strip()
+        if not budget_resource:
+            raise RuntimeError(f"No campaign_budget resource for campaign {entity_id}")
+
+        # Step 2: get current amount (before state)
+        budget_id = budget_resource.rsplit("/", 1)[-1]
+        row_b = self._query_single(
+            client, cid,
+            f"SELECT campaign_budget.amount_micros FROM campaign_budget "
+            f"WHERE campaign_budget.id = {budget_id}",
+        )
+        before_micros = (
+            int(getattr(getattr(row_b, "campaign_budget", None), "amount_micros", 0) or 0)
+            if row_b else 0
+        )
+
+        # Step 3: mutate
+        svc = client.get_service("CampaignBudgetService")
+        op = client.get_type("CampaignBudgetOperation")
+        op.update.resource_name = budget_resource
+        op.update.amount_micros = new_amount_micros
+        op.update_mask.paths.extend(["amount_micros"])
+        svc.mutate_campaign_budgets(customer_id=cid, operations=[op])
+
+        return {
+            "action": "set_budget",
+            "entity_type": "campaign",
+            "entity_id": entity_id,
+            "before": {"amount_micros": before_micros, "budget_krw": before_micros // 1_000_000},
+            "after": {"amount_micros": new_amount_micros, "budget_krw": new_budget_krw},
+            "resource_name": budget_resource,
+        }
+
+    def _apply_set_bid(self, client: Any, cid: str, proposal: dict, payload: dict) -> dict:
+        entity_type = str(proposal.get("entity_type") or "").lower().strip()
+        entity_id = str(proposal.get("entity_id") or "").strip()
+        new_bid_krw = int(payload.get("bid") or 0)
+        new_cpc_micros = new_bid_krw * 1_000_000
+
+        if entity_type == "adgroup":
+            row = self._query_single(
+                client, cid,
+                f"SELECT ad_group.cpc_bid_micros FROM ad_group WHERE ad_group.id = {entity_id}",
+            )
+            before_micros = (
+                int(getattr(getattr(row, "ad_group", None), "cpc_bid_micros", 0) or 0)
+                if row else 0
+            )
+            svc = client.get_service("AdGroupService")
+            op = client.get_type("AdGroupOperation")
+            op.update.resource_name = f"customers/{cid}/adGroups/{entity_id}"
+            op.update.cpc_bid_micros = new_cpc_micros
+            op.update_mask.paths.extend(["cpc_bid_micros"])
+            resp = svc.mutate_ad_groups(customer_id=cid, operations=[op])
+            resource_name = (
+                resp.results[0].resource_name
+                if resp.results
+                else f"customers/{cid}/adGroups/{entity_id}"
+            )
+
+        elif entity_type == "keyword":
+            ad_group_id = str(payload.get("parent_id") or "").strip()
+            if not ad_group_id:
+                row_ag = self._query_single(
+                    client, cid,
+                    f"SELECT ad_group.id FROM keyword_view "
+                    f"WHERE ad_group_criterion.criterion_id = {entity_id}",
+                )
+                if not row_ag:
+                    raise RuntimeError(
+                        f"Cannot find ad_group for keyword criterion_id={entity_id}"
+                    )
+                ad_group_id = str(
+                    getattr(getattr(row_ag, "ad_group", None), "id", "") or ""
+                ).strip()
+                if not ad_group_id:
+                    raise RuntimeError(
+                        f"Cannot resolve ad_group_id for keyword {entity_id}"
+                    )
+            row = self._query_single(
+                client, cid,
+                f"SELECT ad_group_criterion.cpc_bid_micros FROM ad_group_criterion "
+                f"WHERE ad_group_criterion.criterion_id = {entity_id} "
+                f"AND ad_group.id = {ad_group_id}",
+            )
+            before_micros = (
+                int(getattr(getattr(row, "ad_group_criterion", None), "cpc_bid_micros", 0) or 0)
+                if row else 0
+            )
+            resource_name = f"customers/{cid}/adGroupCriteria/{ad_group_id}~{entity_id}"
+            svc = client.get_service("AdGroupCriterionService")
+            op = client.get_type("AdGroupCriterionOperation")
+            op.update.resource_name = resource_name
+            op.update.cpc_bid_micros = new_cpc_micros
+            op.update_mask.paths.extend(["cpc_bid_micros"])
+            svc.mutate_ad_group_criteria(customer_id=cid, operations=[op])
+
+        else:
+            raise RuntimeError(f"Unsupported entity_type for set_bid: {entity_type!r}")
+
+        return {
+            "action": "set_bid",
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "before": {"cpc_bid_micros": before_micros, "bid_krw": before_micros // 1_000_000},
+            "after": {"cpc_bid_micros": new_cpc_micros, "bid_krw": new_bid_krw},
+            "resource_name": resource_name,
+        }
+
+    def _apply_add_negatives(self, client: Any, cid: str, proposal: dict, payload: dict) -> dict:
+        entity_type = str(proposal.get("entity_type") or "").lower().strip()
+        entity_id = str(proposal.get("entity_id") or "").strip()
+        keywords = list(payload.get("keywords") or [])
+        added_resource_names: list[str] = []
+
+        if entity_type == "campaign":
+            svc = client.get_service("CampaignCriterionService")
+            operations = []
+            for kw in keywords:
+                text = str(kw.get("text") or "").strip()
+                if not text:
+                    continue
+                match_type_str = str(kw.get("match_type") or "EXACT").upper()
+                op = client.get_type("CampaignCriterionOperation")
+                c = op.create
+                c.campaign = f"customers/{cid}/campaigns/{entity_id}"
+                c.negative = True
+                c.keyword.text = text
+                c.keyword.match_type = getattr(client.enums.KeywordMatchTypeEnum, match_type_str)
+                operations.append(op)
+            if operations:
+                resp = svc.mutate_campaign_criteria(customer_id=cid, operations=operations)
+                added_resource_names = [r.resource_name for r in resp.results]
+
+        elif entity_type == "adgroup":
+            svc = client.get_service("AdGroupCriterionService")
+            operations = []
+            for kw in keywords:
+                text = str(kw.get("text") or "").strip()
+                if not text:
+                    continue
+                match_type_str = str(kw.get("match_type") or "EXACT").upper()
+                op = client.get_type("AdGroupCriterionOperation")
+                c = op.create
+                c.ad_group = f"customers/{cid}/adGroups/{entity_id}"
+                c.negative = True
+                c.keyword.text = text
+                c.keyword.match_type = getattr(client.enums.KeywordMatchTypeEnum, match_type_str)
+                operations.append(op)
+            if operations:
+                resp = svc.mutate_ad_group_criteria(customer_id=cid, operations=operations)
+                added_resource_names = [r.resource_name for r in resp.results]
+
+        else:
+            raise RuntimeError(f"Unsupported entity_type for add_negatives: {entity_type!r}")
+
+        return {
+            "action": "add_negatives",
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "before": {"count": 0},
+            "after": {"count": len(added_resource_names), "added": added_resource_names},
+            "resource_name": f"customers/{cid}/{entity_type}s/{entity_id}",
+        }
+
+    def _apply_action_api(self, proposal: dict) -> dict:
+        """Synchronous dispatcher for API write actions. Called from asyncio.to_thread."""
+        client = self._google_client()
+        cid = self._google_customer_id()
+        if not cid:
+            raise RuntimeError("Missing Google Ads customer ID")
+
+        action_type = str(proposal.get("action_type") or "").strip()
+        payload = self._payload(proposal)
+
+        if action_type == "pause_entity":
+            return self._apply_pause(client, cid, proposal, payload)
+        elif action_type == "set_budget":
+            return self._apply_set_budget(client, cid, proposal, payload)
+        elif action_type == "set_bid":
+            return self._apply_set_bid(client, cid, proposal, payload)
+        elif action_type == "add_negatives":
+            return self._apply_add_negatives(client, cid, proposal, payload)
+        else:
+            raise ValueError(f"Unsupported action_type for Google Ads: {action_type!r}")
+
     async def apply_action(self, proposal: dict) -> dict:
         mode = str(self.ctx.config.get("mode", "import")).strip().lower()
         if mode in {"import", "fixture"}:
@@ -554,4 +880,5 @@ class GoogleAdsConnector:
                 "entity_type": proposal.get("entity_type"),
                 "entity_id": proposal.get("entity_id"),
             }
-        raise NotImplementedError("Google Ads API write actions not implemented yet")
+        # API mode
+        return await asyncio.to_thread(self._apply_action_api, proposal)
