@@ -32,3 +32,4 @@ data/
 /tables_output.txt
 /cafe24_*.png
 /screenshot_*.png
+.coverage
