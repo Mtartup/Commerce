@@ -137,6 +137,16 @@ COUPANG_VENDOR_ID=      # Seller vendor ID (e.g. A00012345)
 
 Connector config `mode` must be set to `"api"` to enable live API calls.
 
+### Multi-Account Setup
+
+환경 변수는 1호점 기본 계정용. 추가 계정은 DB `connectors` 테이블의 `config_json`에 저장:
+
+```json
+{"mode": "api", "vendor_id": "A01111186", "access_key": "...", "secret_key": "..."}
+```
+
+`db seed`가 각 계정 row를 생성하며, 커서 키(`coupang:{connector_id}:last_sync_date`)로 독립 동기화.
+
 ## Sync Strategy
 
 1. Query ordersheets with `createdAtFrom`/`createdAtTo` date range

@@ -2,6 +2,12 @@
 {% block content %}
   <h1 class="page-title">제안함</h1>
 
+  {% if error %}
+  <section class="card">
+    <p class="muted" style="color:#ff9a9a">실행 오류: {{ error }}</p>
+  </section>
+  {% endif %}
+
   <section class="card">
     <form method="get" action="/actions" class="inline" style="align-items:center">
       <label>상태 필터</label>

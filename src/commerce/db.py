@@ -442,6 +442,7 @@ class AdsDB:
             ("google", "Google Ads", 0),
             ("tiktok", "TikTok Ads", 0),
             ("coupang", "Coupang (commerce+ads)", 0),
+            ("coupang", "포텐 팩토리", 0),
             ("smartstore", "Naver Smart Store", 0),
             ("cafe24_analytics", "Cafe24 Analytics", 0),
         ]

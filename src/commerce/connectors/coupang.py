@@ -61,9 +61,9 @@ def _load_orders_json(path: Path) -> list[dict[str, Any]]:
 class _CoupangClient:
     """Thin wrapper around Coupang Wing Open API with HMAC-SHA256 auth."""
 
-    def __init__(self) -> None:
-        self.access_key = (os.getenv("COUPANG_ACCESS_KEY") or "").strip()
-        self.secret_key = (os.getenv("COUPANG_SECRET_KEY") or "").strip()
+    def __init__(self, access_key: str, secret_key: str) -> None:
+        self.access_key = access_key.strip()
+        self.secret_key = secret_key.strip()
 
     def _authorization_header(self, method: str, path: str, query: str) -> str:
         now = datetime.utcnow().strftime("%y%m%dT%H%M%SZ")
@@ -160,15 +160,15 @@ class CoupangConnector:
             return True, None
         if mode != "api":
             return False, "bad mode"
-        ak = (os.getenv("COUPANG_ACCESS_KEY") or "").strip()
-        sk = (os.getenv("COUPANG_SECRET_KEY") or "").strip()
-        vid = (os.getenv("COUPANG_VENDOR_ID") or "").strip()
+        ak = (self.ctx.config.get("access_key") or os.getenv("COUPANG_ACCESS_KEY") or "").strip()
+        sk = (self.ctx.config.get("secret_key") or os.getenv("COUPANG_SECRET_KEY") or "").strip()
+        vid = (self.ctx.config.get("vendor_id") or os.getenv("COUPANG_VENDOR_ID") or "").strip()
         if not ak:
-            return False, "Missing COUPANG_ACCESS_KEY"
+            return False, "Missing access_key / COUPANG_ACCESS_KEY"
         if not sk:
-            return False, "Missing COUPANG_SECRET_KEY"
+            return False, "Missing secret_key / COUPANG_SECRET_KEY"
         if not vid:
-            return False, "Missing COUPANG_VENDOR_ID"
+            return False, "Missing vendor_id / COUPANG_VENDOR_ID"
         return True, None
 
     async def sync_entities(self) -> None:
@@ -197,9 +197,11 @@ class CoupangConnector:
                 )
             return
 
-        # API mode
-        client = _CoupangClient()
-        vendor_id = (os.getenv("COUPANG_VENDOR_ID") or "").strip()
+        # API mode — config_json takes priority over env vars (supports multiple accounts)
+        access_key = (self.ctx.config.get("access_key") or os.getenv("COUPANG_ACCESS_KEY") or "").strip()
+        secret_key = (self.ctx.config.get("secret_key") or os.getenv("COUPANG_SECRET_KEY") or "").strip()
+        vendor_id = (self.ctx.config.get("vendor_id") or os.getenv("COUPANG_VENDOR_ID") or "").strip()
+        client = _CoupangClient(access_key, secret_key)
         cursor_key = f"coupang:{self.ctx.connector_id}:last_sync_date"
         last_sync = self.repo.get_meta(cursor_key)
 

@@ -56,7 +56,7 @@ async def execute_proposal(
     started = now_utc_iso()
     try:
         result = await connector.apply_action(proposal)
-        repo.finish_execution(exec_id, status="success", after_json=result, error=None)
+        repo.finish_execution(exec_id, status="success", before_json=proposal, after_json=result, error=None)
         repo.set_proposal_result(
             proposal_id,
             status="executed",
@@ -67,7 +67,7 @@ async def execute_proposal(
         return result
     except Exception as e:  # noqa: BLE001 - record error, do not crash caller
         err = f"{type(e).__name__}: {e}"
-        repo.finish_execution(exec_id, status="failed", after_json=None, error=err)
+        repo.finish_execution(exec_id, status="failed", before_json=proposal, after_json=None, error=err)
         repo.set_proposal_result(
             proposal_id,
             status="failed",

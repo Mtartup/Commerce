@@ -757,17 +757,33 @@ def create_app(settings: Settings) -> FastAPI:
                     cfg.pop(key, None)
 
             _set_float("api_min_interval_minutes", api_min_interval_raw)
+        elif row.get("platform") == "coupang":
+            vendor_id_raw = (form.get("vendor_id") or "").strip()
+            access_key_raw = (form.get("access_key") or "").strip()
+            secret_key_raw = (form.get("secret_key") or "").strip()
+            if vendor_id_raw:
+                cfg["vendor_id"] = vendor_id_raw
+            else:
+                cfg.pop("vendor_id", None)
+            if access_key_raw:
+                cfg["access_key"] = access_key_raw
+            else:
+                cfg.pop("access_key", None)
+            if secret_key_raw:
+                cfg["secret_key"] = secret_key_raw
+            else:
+                cfg.pop("secret_key", None)
 
         repo.update_connector_config(connector_id, cfg)
         return RedirectResponse(url="/connectors", status_code=303)
 
     @app.get("/actions", response_class=HTMLResponse)
-    def actions_page(request: Request, status: str = "proposed"):
+    def actions_page(request: Request, status: str = "proposed", error: str | None = None):
         db = AdsDB(settings.db_path)
         proposals = db.list_action_proposals(status=status, limit=100)
         return templates.TemplateResponse(
             "actions.html",
-            {"request": request, "proposals": proposals, "status": status},
+            {"request": request, "proposals": proposals, "status": status, "error": error},
         )
 
     @app.post("/actions/{proposal_id}/approve")
@@ -782,11 +798,15 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.post("/actions/{proposal_id}/execute")
     async def execute_action(proposal_id: str):
+        from urllib.parse import quote
         try:
             await execute_proposal(settings, repo=repo, proposal_id=proposal_id, actor="web")
-        except ExecutionError:
-            pass
-        return RedirectResponse(url="/actions?status=approved", status_code=303)
+        except ExecutionError as e:
+            return RedirectResponse(
+                url=f"/actions?status=approved&error={quote(str(e))}",
+                status_code=303,
+            )
+        return RedirectResponse(url="/actions?status=executed", status_code=303)
 
     @app.get("/rules", response_class=HTMLResponse)
     def rules_page(request: Request, error: str | None = None):

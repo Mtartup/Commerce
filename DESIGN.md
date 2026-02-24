@@ -193,6 +193,7 @@ This avoids refactors when real auth is introduced.
 
 - Treat commerce API and ads reporting separately.
 - Ads API availability is uncertain; plan for import/RPA plugin if needed.
+- Multi-vendor supported: each vendor account is a separate connector row; credentials stored in `config_json` (`.env` fallback for primary account).
 
 ## Implementation Order (Recommended)
 

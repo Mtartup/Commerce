@@ -73,13 +73,13 @@
 - True ROAS calculation: ad spend (platform A) → conversion (channel B)
 - Telegram daily digest push
 
-## Current Snapshot (2026-02-17)
+## Current Snapshot (2026-02-24)
 
 - Connector-scoped schema migration completed (`schema_version=5`)
 - Sales channel ingestion:
   - Cafe24 orders API + CSV import: working
   - SmartStore API: working (date fallback normalized)
-  - Coupang API: working (current sync status filter: `ACCEPT`)
+  - Coupang API: working (current sync status filter: `ACCEPT`, 2 vendors syncing)
   - Cafe24 Analytics API: working
 - Dashboard:
   - Basis-day alignment implemented for ad/store lag handling

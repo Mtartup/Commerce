@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -191,8 +192,8 @@ def execute_cmd(
     AdsDB(settings.db_path).init()
     repo = Repo(settings.db_path)
     try:
-        asyncio.run(execute_proposal(settings, repo=repo, proposal_id=proposal_id, actor="cli"))
-        typer.echo("OK executed")
+        result = asyncio.run(execute_proposal(settings, repo=repo, proposal_id=proposal_id, actor="cli"))
+        typer.echo(json.dumps(result, indent=2, ensure_ascii=False, default=str))
     except ExecutionError as e:
         raise typer.Exit(code=2) from e
 

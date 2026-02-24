@@ -117,7 +117,7 @@ GOOGLE_ADS_REFRESH_TOKEN=...
 | Cafe24 (self-hosted mall) | REST Admin API (orders) | API + CSV import done |
 | Cafe24 Analytics | Analytics API (visitors, keywords, ad attribution) | API done |
 | Smart Store | Naver Commerce API (orders) | API done |
-| Coupang | Wing API (orders) | API done |
+| Coupang | Wing API (orders) | API done (multi-vendor) |
 
 ### Why All Channels?
 
@@ -185,6 +185,7 @@ uv run commerce tick
   - Module renamed: `src/ads/` → `src/commerce/`
   - CLI renamed: `uv run ads` → `uv run commerce`
   - Env vars kept as `ADS_*` for backward compatibility
+  - Coupang multi-vendor support: 1호점 + 2호점 (포텐 팩토리) syncing via per-connector `config_json`
 
 ## Design Notes
 

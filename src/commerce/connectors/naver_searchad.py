@@ -4,6 +4,7 @@ import base64
 import csv
 import hashlib
 import hmac
+import json
 import os
 import time
 from datetime import date, datetime, timedelta
@@ -285,6 +286,39 @@ class NaverSearchAdConnector:
         self.ctx = ctx
         self.repo = repo
 
+    def _build_client(self) -> _NaverSearchAdClient:
+        base_url = os.getenv("NAVER_SEARCHAD_BASE_URL", _DEFAULT_BASE_URL).strip() or _DEFAULT_BASE_URL
+        api_key = (os.getenv("NAVER_SEARCHAD_API_KEY") or "").strip()
+        secret_key = (os.getenv("NAVER_SEARCHAD_SECRET_KEY") or "").strip()
+        customer_id = (os.getenv("NAVER_SEARCHAD_CUSTOMER_ID") or "").strip()
+        return _NaverSearchAdClient(
+            base_url=base_url, api_key=api_key, secret_key=secret_key, customer_id=customer_id
+        )
+
+    def _payload(self, proposal: dict) -> dict:
+        raw = proposal.get("payload_json") or "{}"
+        if isinstance(raw, dict):
+            return raw
+        try:
+            return json.loads(raw)
+        except Exception:
+            return {}
+
+    async def _resolve_parent_id(self, proposal: dict, payload: dict, entity_id: str) -> str:
+        parent_id = str(payload.get("parent_id") or "").strip()
+        if parent_id:
+            return parent_id
+        with self.repo.connect() as conn:
+            row = conn.execute(
+                "SELECT parent_id FROM entities WHERE platform='naver' AND entity_type='keyword' AND entity_id=?",
+                (entity_id,),
+            ).fetchone()
+        if row and row[0]:
+            return str(row[0]).strip()
+        raise ValueError(
+            f"Cannot resolve parent adgroup for keyword {entity_id!r}: not in payload or DB"
+        )
+
     async def health_check(self) -> tuple[bool, str | None]:
         mode = str(self.ctx.config.get("mode", "import")).strip().lower()
         if mode in {"import", "fixture"}:
@@ -327,13 +361,8 @@ class NaverSearchAdConnector:
             return
 
         # API mode (best-effort: campaigns + adgroups)
-        base_url = os.getenv("NAVER_SEARCHAD_BASE_URL", _DEFAULT_BASE_URL).strip() or _DEFAULT_BASE_URL
-        api_key = (os.getenv("NAVER_SEARCHAD_API_KEY") or "").strip()
-        secret_key = (os.getenv("NAVER_SEARCHAD_SECRET_KEY") or "").strip()
+        client = self._build_client()
         customer_id = (os.getenv("NAVER_SEARCHAD_CUSTOMER_ID") or "").strip()
-        client = _NaverSearchAdClient(
-            base_url=base_url, api_key=api_key, secret_key=secret_key, customer_id=customer_id
-        )
 
         camps = await client.request_json(method="GET", uri="/ncc/campaigns", timeout=30)
         if isinstance(camps, list):
@@ -407,13 +436,8 @@ class NaverSearchAdConnector:
             return
 
         # API mode: Stat Report -> TSV -> rollup
-        base_url = os.getenv("NAVER_SEARCHAD_BASE_URL", _DEFAULT_BASE_URL).strip() or _DEFAULT_BASE_URL
-        api_key = (os.getenv("NAVER_SEARCHAD_API_KEY") or "").strip()
-        secret_key = (os.getenv("NAVER_SEARCHAD_SECRET_KEY") or "").strip()
+        client = self._build_client()
         customer_id = (os.getenv("NAVER_SEARCHAD_CUSTOMER_ID") or "").strip()
-        client = _NaverSearchAdClient(
-            base_url=base_url, api_key=api_key, secret_key=secret_key, customer_id=customer_id
-        )
 
         report_tp = str(self.ctx.config.get("report_tp") or "AD_DETAIL").strip().upper()
         levels = _safe_levels(self.ctx.config.get("ingest_levels"))
@@ -729,6 +753,194 @@ class NaverSearchAdConnector:
                 metrics_json=row.get("metrics_json") or {},
             )
 
+    # ------------------------------------------------------------------ #
+    # Write helpers                                                        #
+    # ------------------------------------------------------------------ #
+
+    async def _apply_pause(
+        self, client: _NaverSearchAdClient, proposal: dict, payload: dict
+    ) -> dict:
+        entity_type = str(proposal.get("entity_type") or "").lower().strip()
+        entity_id = str(proposal.get("entity_id") or "").strip()
+        op_str = str(payload.get("op") or "pause").lower()
+        user_lock = op_str == "pause"
+
+        if entity_type == "campaign":
+            before_data = await client.request_json(
+                method="GET", uri=f"/ncc/campaigns/{entity_id}", timeout=30
+            )
+            before_data = before_data if isinstance(before_data, dict) else {}
+            after_data = await client.request_json(
+                method="PUT",
+                uri=f"/ncc/campaigns/{entity_id}",
+                params={"fields": "userLock"},
+                json_body={"nccCampaignId": entity_id, "userLock": user_lock},
+                timeout=30,
+            )
+        elif entity_type == "adgroup":
+            before_data = await client.request_json(
+                method="GET", uri=f"/ncc/adgroups/{entity_id}", timeout=30
+            )
+            before_data = before_data if isinstance(before_data, dict) else {}
+            after_data = await client.request_json(
+                method="PUT",
+                uri=f"/ncc/adgroups/{entity_id}",
+                params={"fields": "userLock"},
+                json_body={"nccAdgroupId": entity_id, "userLock": user_lock},
+                timeout=30,
+            )
+        elif entity_type == "keyword":
+            parent_id = await self._resolve_parent_id(proposal, payload, entity_id)
+            before_data = await client.request_json(
+                method="GET", uri=f"/ncc/keywords/{entity_id}", timeout=30
+            )
+            before_data = before_data if isinstance(before_data, dict) else {}
+            after_data = await client.request_json(
+                method="PUT",
+                uri=f"/ncc/keywords/{entity_id}",
+                params={"fields": "userLock"},
+                json_body={
+                    "nccKeywordId": entity_id,
+                    "nccAdgroupId": parent_id,
+                    "userLock": user_lock,
+                },
+                timeout=30,
+            )
+        else:
+            raise RuntimeError(f"Unsupported entity_type for pause_entity: {entity_type!r}")
+
+        after_data = after_data if isinstance(after_data, dict) else {}
+        return {
+            "action": "pause_entity",
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "before": {
+                "userLock": before_data.get("userLock"),
+                "status": before_data.get("status"),
+            },
+            "after": {
+                "userLock": after_data.get("userLock", user_lock),
+                "status": after_data.get("status"),
+            },
+        }
+
+    async def _apply_set_budget(
+        self, client: _NaverSearchAdClient, proposal: dict, payload: dict
+    ) -> dict:
+        entity_id = str(proposal.get("entity_id") or "").strip()
+        new_budget = int(payload.get("budget") or 0)
+
+        before_data = await client.request_json(
+            method="GET", uri=f"/ncc/campaigns/{entity_id}", timeout=30
+        )
+        before_data = before_data if isinstance(before_data, dict) else {}
+        before_budget = before_data.get("dailyBudget")
+
+        after_data = await client.request_json(
+            method="PUT",
+            uri=f"/ncc/campaigns/{entity_id}",
+            params={"fields": "budget"},
+            json_body={
+                "nccCampaignId": entity_id,
+                "dailyBudget": new_budget,
+                "useDailyBudget": True,
+            },
+            timeout=30,
+        )
+        after_data = after_data if isinstance(after_data, dict) else {}
+        return {
+            "action": "set_budget",
+            "entity_type": "campaign",
+            "entity_id": entity_id,
+            "before": {"dailyBudget": before_budget},
+            "after": {"dailyBudget": after_data.get("dailyBudget", new_budget)},
+        }
+
+    async def _apply_set_bid(
+        self, client: _NaverSearchAdClient, proposal: dict, payload: dict
+    ) -> dict:
+        entity_type = str(proposal.get("entity_type") or "").lower().strip()
+        entity_id = str(proposal.get("entity_id") or "").strip()
+        new_bid = int(payload.get("bid") or 0)
+
+        if entity_type == "keyword":
+            parent_id = await self._resolve_parent_id(proposal, payload, entity_id)
+            before_data = await client.request_json(
+                method="GET", uri=f"/ncc/keywords/{entity_id}", timeout=30
+            )
+            before_data = before_data if isinstance(before_data, dict) else {}
+            after_data = await client.request_json(
+                method="PUT",
+                uri=f"/ncc/keywords/{entity_id}",
+                params={"fields": "bidAmt"},
+                json_body={
+                    "nccKeywordId": entity_id,
+                    "nccAdgroupId": parent_id,
+                    "bidAmt": new_bid,
+                    "useGroupBidAmt": False,
+                },
+                timeout=30,
+            )
+        elif entity_type == "adgroup":
+            before_data = await client.request_json(
+                method="GET", uri=f"/ncc/adgroups/{entity_id}", timeout=30
+            )
+            before_data = before_data if isinstance(before_data, dict) else {}
+            after_data = await client.request_json(
+                method="PUT",
+                uri=f"/ncc/adgroups/{entity_id}",
+                params={"fields": "bidAmt"},
+                json_body={"nccAdgroupId": entity_id, "bidAmt": new_bid},
+                timeout=30,
+            )
+        else:
+            raise RuntimeError(f"Unsupported entity_type for set_bid: {entity_type!r}")
+
+        after_data = after_data if isinstance(after_data, dict) else {}
+        return {
+            "action": "set_bid",
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "before": {"bidAmt": before_data.get("bidAmt")},
+            "after": {"bidAmt": after_data.get("bidAmt", new_bid)},
+        }
+
+    async def _apply_add_negatives(
+        self, client: _NaverSearchAdClient, proposal: dict, payload: dict
+    ) -> dict:
+        entity_id = str(proposal.get("entity_id") or "").strip()
+        keywords = list(payload.get("keywords") or [])
+
+        # Naver restricted-keywords are adgroup-scoped only.
+        body = [
+            {"keyword": str(kw.get("text") or "").strip()}
+            for kw in keywords
+            if str(kw.get("text") or "").strip()
+        ]
+        if not body:
+            return {
+                "action": "add_negatives",
+                "entity_type": "adgroup",
+                "entity_id": entity_id,
+                "before": {"count": 0},
+                "after": {"count": 0, "added": []},
+            }
+
+        after_data = await client.request_json(
+            method="POST",
+            uri=f"/ncc/adgroups/{entity_id}/restricted-keywords",
+            json_body=body,
+            timeout=30,
+        )
+        added = after_data if isinstance(after_data, list) else []
+        return {
+            "action": "add_negatives",
+            "entity_type": "adgroup",
+            "entity_id": entity_id,
+            "before": {"count": 0},
+            "after": {"count": len(added), "added": added},
+        }
+
     async def apply_action(self, proposal: dict) -> dict:
         mode = str(self.ctx.config.get("mode", "import")).strip().lower()
         if mode in {"import", "fixture"}:
@@ -740,4 +952,18 @@ class NaverSearchAdConnector:
                 "entity_type": proposal.get("entity_type"),
                 "entity_id": proposal.get("entity_id"),
             }
-        raise NotImplementedError("API actions not implemented yet")
+
+        client = self._build_client()
+        action_type = str(proposal.get("action_type") or "").strip()
+        payload = self._payload(proposal)
+
+        if action_type == "pause_entity":
+            return await self._apply_pause(client, proposal, payload)
+        elif action_type == "set_budget":
+            return await self._apply_set_budget(client, proposal, payload)
+        elif action_type == "set_bid":
+            return await self._apply_set_bid(client, proposal, payload)
+        elif action_type == "add_negatives":
+            return await self._apply_add_negatives(client, proposal, payload)
+        else:
+            raise ValueError(f"Unsupported action_type for Naver: {action_type!r}")

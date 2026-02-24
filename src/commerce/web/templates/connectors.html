@@ -181,7 +181,14 @@
                     <input type="number" step="1" min="1" name="api_min_interval_minutes" value="{{ cfg.api_min_interval_minutes or '' }}" />
                   </div>
                 </div>
-              {% elif c.platform in ["coupang", "smartstore", "cafe24_analytics"] %}
+              {% elif c.platform == "coupang" %}
+                <label>Vendor ID <span class="muted">(선택: 미입력 시 .env COUPANG_VENDOR_ID 사용)</span></label>
+                <input name="vendor_id" placeholder="A00604649" value="{{ cfg.vendor_id or '' }}" />
+                <label>Access Key <span class="muted">(선택: 미입력 시 .env COUPANG_ACCESS_KEY 사용)</span></label>
+                <input name="access_key" placeholder="(기본: .env)" value="{{ cfg.access_key or '' }}" />
+                <label>Secret Key <span class="muted">(선택: 미입력 시 .env COUPANG_SECRET_KEY 사용)</span></label>
+                <input name="secret_key" type="password" placeholder="(기본: .env)" value="{{ cfg.secret_key or '' }}" />
+              {% elif c.platform in ["smartstore", "cafe24_analytics"] %}
                 <p class="muted">판매채널: mode와 fixture_dir만 설정합니다. API 인증은 .env에서 관리.</p>
               {% endif %}
               <button type="submit" class="cta">저장</button>

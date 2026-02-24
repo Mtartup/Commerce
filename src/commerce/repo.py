@@ -789,6 +789,7 @@ class Repo:
         execution_id: str,
         *,
         status: str,
+        before_json: dict[str, Any] | None = None,
         after_json: dict[str, Any] | None,
         error: str | None,
     ) -> None:
@@ -797,12 +798,13 @@ class Repo:
             conn.execute(
                 """
                 UPDATE executions
-                SET finished_at=?, status=?, after_json=?, error=?
+                SET finished_at=?, status=?, before_json=?, after_json=?, error=?
                 WHERE id=?
                 """,
                 (
                     now,
                     status,
+                    json.dumps(before_json, ensure_ascii=True) if before_json is not None else None,
                     json.dumps(after_json, ensure_ascii=True) if after_json is not None else None,
                     error,
                     execution_id,

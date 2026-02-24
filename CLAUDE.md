@@ -25,13 +25,13 @@
 | Google Ads | done | done | active |
 | TikTok Ads | stub | - | planned |
 
-### Sales Channels (planned)
+### Sales Channels
 | Channel | API | CSV Import | Status |
 |---------|-----|------------|--------|
-| Cafe24 Orders | planned | done | active (import only) |
+| Cafe24 Orders | done | done | active (via cafe24_analytics connector) |
 | Cafe24 Analytics | done | - | active |
 | Smart Store | done | - | active |
-| Coupang | done | - | active |
+| Coupang | done | - | active (1호점 + 2호점, multi-vendor via config_json) |
 
 ## Code Conventions
 
